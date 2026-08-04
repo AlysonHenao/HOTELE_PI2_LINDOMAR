@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: lindomar-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/lindomar}
+    username: ${SPRING_DATASOURCE_USERNAME:lindomar}
+    password: ${SPRING_DATASOURCE_PASSWORD:lindomar}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+server:
+  port: 8080
+
