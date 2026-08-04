@@ -1,4 +1,4 @@
-# LINDOMAR · Prototipo hotelero
+# LINDOMAR Prototipo hotelero
 
 MVP de gestión hotelera con tres experiencias: huésped, empleado y administrador.
 
