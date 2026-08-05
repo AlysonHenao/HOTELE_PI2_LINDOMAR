@@ -395,7 +395,9 @@ function ReserveModal({room, user, dates, onClose, onDone}) {
 function Reservations({user, notify}) {
   const [items, setItems] = useState([]);
   const load = () => api(`/reservations?guestId=${user.id}`).then(setItems);
-  useEffect(load, [user.id]);
+  // Se envuelve en llaves a propósito: si el efecto devuelve la promesa de `load`,
+  // React la toma como función de limpieza y falla al desmontar la vista.
+  useEffect(() => {load()}, [user.id]);
   const cancel = async id => {
     if (!confirm('¿Deseas cancelar esta reserva?')) return;
     await api(`/reservations/${id}`, {method: 'DELETE'});
@@ -425,7 +427,9 @@ function Requests({user, notify}) {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState({guestId: user.id, roomNumber: '', category: 'Toallas y lencería', notes: ''});
   const load = () => api(`/requests?guestId=${user.id}`).then(setItems);
-  useEffect(load, [user.id]);
+  // Se envuelve en llaves a propósito: si el efecto devuelve la promesa de `load`,
+  // React la toma como función de limpieza y falla al desmontar la vista.
+  useEffect(() => {load()}, [user.id]);
   const submit = async e => {
     e.preventDefault();
     await api('/requests', {method: 'POST', body: JSON.stringify(form)});
@@ -496,7 +500,9 @@ function Employee({page, user, notify, onChange}) {
 function EmployeeTasks({user, notify}) {
   const [tasks, setTasks] = useState([]);
   const load = () => api(`/tasks?employeeId=${user.id}`).then(setTasks);
-  useEffect(load, [user.id]);
+  // Se envuelve en llaves a propósito: si el efecto devuelve la promesa de `load`,
+  // React la toma como función de limpieza y falla al desmontar la vista.
+  useEffect(() => {load()}, [user.id]);
   const update = async (id, status) => {
     await api(`/tasks/${id}`, {method: 'PUT', body: JSON.stringify({status})});
     notify(status === 'DONE' ? 'Tarea marcada como completada' : 'Tarea actualizada'); load();
@@ -548,7 +554,7 @@ function ServiceRequests({notify, onChange}) {
   const [items, setItems] = useState([]);
   const load = () => api('/requests').then(list =>
     setItems([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))));
-  useEffect(load, []);
+  useEffect(() => {load()}, []);
 
   const update = async (id, status) => {
     await api(`/requests/${id}`, {method: 'PUT', body: JSON.stringify({status})});
@@ -622,7 +628,7 @@ function AdminHome({notify}) {
   const [d, setD] = useState(null);
   const [reminders, setReminders] = useState([]);
   const load = () => {api('/dashboard').then(setD); api('/reminders').then(setReminders)};
-  useEffect(load, []);
+  useEffect(() => {load()}, []);
   if (!d) return <div className="loader">Cargando indicadores…</div>;
 
   const occupancy = Math.round(d.occupied / d.rooms * 100);
@@ -700,7 +706,7 @@ function AdminRooms({notify}) {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const load = () => api('/rooms/all').then(setRooms);
-  useEffect(load, []);
+  useEffect(() => {load()}, []);
 
   const save = async room => {
     await api(`/rooms/${room.id}`, {method: 'PUT', body: JSON.stringify(room)});
@@ -776,7 +782,7 @@ function RoomModal({room, isNew, onClose, onSave}) {
 function AdminReservations({notify}) {
   const [items, setItems] = useState([]);
   const load = () => api('/reservations').then(setItems);
-  useEffect(load, []);
+  useEffect(() => {load()}, []);
   const update = async (r, status) => {
     await api(`/reservations/${r.id}`, {method: 'PUT', body: JSON.stringify({status})});
     notify('Estado de reserva actualizado'); load();
@@ -881,7 +887,7 @@ function Finance({notify}) {
   const [reminderForm, setReminderForm] = useState({concept: '', category: 'Insumos', estimatedAmount: '', dueDate: future(7)});
 
   const load = () => {api('/finance').then(setEntries); api('/reminders').then(setReminders)};
-  useEffect(load, []);
+  useEffect(() => {load()}, []);
 
   const create = async e => {
     e.preventDefault();
@@ -980,6 +986,30 @@ function Finance({notify}) {
   </>;
 }
 
+/* ---------- Barrera de errores ---------- */
+/**
+ * Evita que un error de renderizado deje la pantalla completamente en blanco:
+ * muestra un mensaje entendible y permite volver sin perder la sesión.
+ */
+class ErrorBoundary extends React.Component {
+  constructor(props) {super(props); this.state = {error: null}}
+  static getDerivedStateFromError(error) {return {error}}
+  componentDidCatch(error, info) {console.error('Error de renderizado:', error, info)}
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <div className="crash-screen">
+      <span className="brand-mark">L</span>
+      <h1>Algo no cargó bien</h1>
+      <p>Ocurrió un problema al mostrar esta sección. Puedes volver e intentarlo de nuevo.</p>
+      <div className="crash-actions">
+        <button className="primary" onClick={() => this.setState({error: null})}>Reintentar</button>
+        <button className="ghost" onClick={() => location.reload()}>Recargar la página</button>
+      </div>
+      <code>{String(this.state.error?.message || this.state.error)}</code>
+    </div>;
+  }
+}
+
 /* ---------- Raíz ---------- */
 function App() {
   const [user, setUser] = useState(() => {
@@ -989,9 +1019,11 @@ function App() {
   const [theme, toggleTheme] = useTheme();
   const login = u => {localStorage.setItem('lindomar-user', JSON.stringify(u)); setUser(u)};
   const logout = () => {localStorage.removeItem('lindomar-user'); setUser(null)};
-  return user
-    ? <Shell user={user} onLogout={logout} theme={theme} toggleTheme={toggleTheme}/>
-    : <Login onLogin={login}/>;
+  return <ErrorBoundary>
+    {user
+      ? <Shell user={user} onLogout={logout} theme={theme} toggleTheme={toggleTheme}/>
+      : <Login onLogin={login}/>}
+  </ErrorBoundary>;
 }
 
 createRoot(document.getElementById('root')).render(<App/>);

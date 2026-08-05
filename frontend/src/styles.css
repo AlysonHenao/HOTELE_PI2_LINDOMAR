@@ -1436,6 +1436,32 @@ td > small { display: block; color: var(--muted); font-size: 10px; margin-top: 3
   .toast { left: 16px; right: 16px; bottom: 16px; }
 }
 
+/* ---------- Pantalla de error ---------- */
+.crash-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 24px;
+  gap: 6px;
+  background: var(--bg);
+}
+.crash-screen h1 { font-size: 32px; margin: 20px 0 6px; }
+.crash-screen p { color: var(--muted); max-width: 420px; line-height: 1.6; }
+.crash-actions { display: flex; gap: 10px; margin: 22px 0 18px; flex-wrap: wrap; justify-content: center; }
+.crash-screen code {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  max-width: 90vw;
+  overflow-x: auto;
+}
+
 /* Durante el cambio de tema se apagan las transiciones: evita que algunos
    elementos queden con el color anterior a medio repintar. */
 :root.theme-switching,
