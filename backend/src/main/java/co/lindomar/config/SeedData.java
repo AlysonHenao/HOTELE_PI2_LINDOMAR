@@ -11,7 +11,7 @@ import java.util.List;
 
 @Configuration
 public class SeedData {
- @Bean CommandLineRunner seed(UserRepository users, RoomRepository rooms, TaskRepository tasks, FinanceRepository finance){
+ @Bean CommandLineRunner seed(UserRepository users, RoomRepository rooms, TaskRepository tasks, FinanceRepository finance, ReminderRepository reminders){
   return args -> {
    if(users.count()>0) return;
    var guest=users.save(new UserAccount("Mariana Torres","huesped@lindomar.co","demo123",Role.GUEST,"300 555 0142"));
@@ -37,6 +37,12 @@ public class SeedData {
     new FinanceEntry(EntryType.INCOME,"Reservas de la semana",new BigDecimal("4850000"),LocalDate.now()),
     new FinanceEntry(EntryType.EXPENSE,"Proveedor de lavandería",new BigDecimal("720000"),LocalDate.now().minusDays(1)),
     new FinanceEntry(EntryType.EXPENSE,"Mantenimiento preventivo",new BigDecimal("350000"),LocalDate.now().minusDays(2))
+   ));
+   reminders.saveAll(List.of(
+    new ExpenseReminder("Reposición de insumos de aseo","Insumos",new BigDecimal("480000"),LocalDate.now().plusDays(2),ReminderStatus.PENDING),
+    new ExpenseReminder("Pago factura de energía","Servicios",new BigDecimal("1250000"),LocalDate.now().plusDays(5),ReminderStatus.PENDING),
+    new ExpenseReminder("Mantenimiento del aire acondicionado","Mantenimiento",new BigDecimal("640000"),LocalDate.now().plusDays(12),ReminderStatus.PENDING),
+    new ExpenseReminder("Compra de lencería piso 2","Insumos",new BigDecimal("890000"),LocalDate.now().plusDays(21),ReminderStatus.PENDING)
    ));
   };
  }

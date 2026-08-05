@@ -14,6 +14,7 @@ public final class Domain {
     public enum RoomStatus { AVAILABLE, OCCUPIED, MAINTENANCE }
     public enum RequestStatus { OPEN, IN_PROGRESS, RESOLVED }
     public enum EntryType { INCOME, EXPENSE }
+    public enum ReminderStatus { PENDING, DONE }
 
     @Entity @Table(name = "users")
     public static class UserAccount {
@@ -133,6 +134,25 @@ public final class Domain {
         public String getConcept(){return concept;} public void setConcept(String v){concept=v;}
         public BigDecimal getAmount(){return amount;} public void setAmount(BigDecimal v){amount=v;}
         public LocalDate getDate(){return date;} public void setDate(LocalDate v){date=v;}
+    }
+
+    /** HU-15: recordatorios programados de gastos necesarios del hotel. */
+    @Entity @Table(name = "expense_reminders")
+    public static class ExpenseReminder {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
+        private String concept;
+        private String category;
+        private BigDecimal estimatedAmount;
+        private LocalDate dueDate;
+        @Enumerated(EnumType.STRING) private ReminderStatus status;
+        public ExpenseReminder() {}
+        public ExpenseReminder(String concept,String category,BigDecimal estimatedAmount,LocalDate dueDate,ReminderStatus status){this.concept=concept;this.category=category;this.estimatedAmount=estimatedAmount;this.dueDate=dueDate;this.status=status;}
+        public Long getId(){return id;} public void setId(Long v){id=v;}
+        public String getConcept(){return concept;} public void setConcept(String v){concept=v;}
+        public String getCategory(){return category;} public void setCategory(String v){category=v;}
+        public BigDecimal getEstimatedAmount(){return estimatedAmount;} public void setEstimatedAmount(BigDecimal v){estimatedAmount=v;}
+        public LocalDate getDueDate(){return dueDate;} public void setDueDate(LocalDate v){dueDate=v;}
+        public ReminderStatus getStatus(){return status;} public void setStatus(ReminderStatus v){status=v;}
     }
 }
 
