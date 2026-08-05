@@ -15,9 +15,11 @@ import java.util.*;
 public class HotelController {
  private final UserRepository users; private final RoomRepository rooms; private final ReservationRepository reservations;
  private final RequestRepository requests; private final TaskRepository tasks; private final FinanceRepository finance;
- public HotelController(UserRepository u,RoomRepository r,ReservationRepository rs,RequestRepository rq,TaskRepository t,FinanceRepository f){users=u;rooms=r;reservations=rs;requests=rq;tasks=t;finance=f;}
+ private final ReminderRepository reminders;
+ public HotelController(UserRepository u,RoomRepository r,ReservationRepository rs,RequestRepository rq,TaskRepository t,FinanceRepository f,ReminderRepository rm){users=u;rooms=r;reservations=rs;requests=rq;tasks=t;finance=f;reminders=rm;}
 
  public record LoginRequest(String email,String password){}
+ public record RegisterRequest(String name,String email,String password,String phone){}
  public record PublicUser(Long id,String name,String email,Role role,String phone){}
  public record ReservationView(Long id,Long guestId,String guestName,Long roomId,String roomNumber,String roomType,LocalDate checkIn,LocalDate checkOut,int guests,ReservationStatus status,String notes,BigDecimal total){}
 
@@ -25,6 +27,16 @@ public class HotelController {
   return users.findByEmailIgnoreCase(input.email()).filter(u->Objects.equals(u.getPassword(),input.password()))
    .<ResponseEntity<?>>map(u->ResponseEntity.ok(new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone())))
    .orElseGet(()->ResponseEntity.status(401).body(Map.of("message","Correo o contraseña incorrectos")));
+ }
+
+ /** HU-02: registro de nuevos huéspedes. Siempre crea cuentas con rol GUEST. */
+ @PostMapping("/auth/register") ResponseEntity<?> register(@RequestBody RegisterRequest input){
+  if(input.name()==null||input.name().isBlank())return ResponseEntity.badRequest().body(Map.of("message","El nombre es obligatorio"));
+  if(input.email()==null||!input.email().contains("@"))return ResponseEntity.badRequest().body(Map.of("message","Ingrese un correo electrónico válido"));
+  if(input.password()==null||input.password().length()<6)return ResponseEntity.badRequest().body(Map.of("message","La contraseña debe tener al menos 6 caracteres"));
+  if(users.findByEmailIgnoreCase(input.email()).isPresent())return ResponseEntity.status(409).body(Map.of("message","Ya existe una cuenta registrada con ese correo"));
+  var saved=users.save(new UserAccount(input.name().trim(),input.email().trim(),input.password(),Role.GUEST,input.phone()));
+  return ResponseEntity.ok(new PublicUser(saved.getId(),saved.getName(),saved.getEmail(),saved.getRole(),saved.getPhone()));
  }
 
  @GetMapping("/users") List<PublicUser> allUsers(){return users.findAll().stream().map(u->new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone())).toList();}
@@ -44,10 +56,21 @@ public class HotelController {
   var room=rooms.findById(r.getRoomId()).orElseThrow();
   if(r.getGuests()>room.getCapacity())return ResponseEntity.badRequest().body(Map.of("message","La habitación no admite esa cantidad de huéspedes"));
   if(reservations.existsByRoomIdAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(r.getRoomId(),ReservationStatus.CANCELLED,r.getCheckOut(),r.getCheckIn()))return ResponseEntity.status(409).body(Map.of("message","La habitación ya no está disponible en esas fechas"));
-  r.setStatus(ReservationStatus.CONFIRMED);return ResponseEntity.ok(view(reservations.save(r)));
+  r.setStatus(ReservationStatus.CONFIRMED);
+  var saved=view(reservations.save(r));
+  // HU-14: al confirmarse la reserva el ingreso se suma automáticamente al balance del hotel.
+  finance.save(new FinanceEntry(EntryType.INCOME,"Reserva #"+saved.id()+" · Habitación "+saved.roomNumber(),saved.total(),LocalDate.now()));
+  return ResponseEntity.ok(saved);
  }
  @PutMapping("/reservations/{id}") ReservationView updateReservation(@PathVariable Long id,@RequestBody Reservation data){var r=reservations.findById(id).orElseThrow();if(data.getCheckIn()!=null)r.setCheckIn(data.getCheckIn());if(data.getCheckOut()!=null)r.setCheckOut(data.getCheckOut());if(data.getGuests()>0)r.setGuests(data.getGuests());if(data.getStatus()!=null)r.setStatus(data.getStatus());if(data.getNotes()!=null)r.setNotes(data.getNotes());return view(reservations.save(r));}
- @DeleteMapping("/reservations/{id}") void cancelReservation(@PathVariable Long id){var r=reservations.findById(id).orElseThrow();r.setStatus(ReservationStatus.CANCELLED);reservations.save(r);}
+ @DeleteMapping("/reservations/{id}") void cancelReservation(@PathVariable Long id){
+  var r=reservations.findById(id).orElseThrow();
+  if(r.getStatus()==ReservationStatus.CANCELLED)return;
+  r.setStatus(ReservationStatus.CANCELLED);reservations.save(r);
+  // HU-14: se registra el reembolso para que el balance siga siendo coherente tras la cancelación.
+  var v=view(r);
+  finance.save(new FinanceEntry(EntryType.EXPENSE,"Reembolso reserva #"+v.id()+" · Habitación "+v.roomNumber(),v.total(),LocalDate.now()));
+ }
 
  @GetMapping("/requests") List<ServiceRequest> getRequests(@RequestParam(required=false)Long guestId){return guestId==null?requests.findAll():requests.findByGuestIdOrderByCreatedAtDesc(guestId);}
  @PostMapping("/requests") ServiceRequest createRequest(@RequestBody ServiceRequest r){r.setStatus(RequestStatus.OPEN);r.setCreatedAt(LocalDateTime.now());return requests.save(r);}
@@ -59,6 +82,19 @@ public class HotelController {
 
  @GetMapping("/finance") List<FinanceEntry> getFinance(){return finance.findAll();}
  @PostMapping("/finance") FinanceEntry createFinance(@RequestBody FinanceEntry e){if(e.getDate()==null)e.setDate(LocalDate.now());return finance.save(e);}
+ // HU-15: recordatorios programados de gastos necesarios.
+ @GetMapping("/reminders") List<ExpenseReminder> getReminders(){return reminders.findAllByOrderByDueDateAsc();}
+ @PostMapping("/reminders") ExpenseReminder createReminder(@RequestBody ExpenseReminder r){if(r.getStatus()==null)r.setStatus(ReminderStatus.PENDING);if(r.getDueDate()==null)r.setDueDate(LocalDate.now());return reminders.save(r);}
+ @PutMapping("/reminders/{id}") ExpenseReminder updateReminder(@PathVariable Long id,@RequestBody ExpenseReminder data){var r=reminders.findById(id).orElseThrow();if(data.getStatus()!=null)r.setStatus(data.getStatus());if(data.getConcept()!=null)r.setConcept(data.getConcept());if(data.getDueDate()!=null)r.setDueDate(data.getDueDate());return reminders.save(r);}
+ @DeleteMapping("/reminders/{id}") void deleteReminder(@PathVariable Long id){reminders.deleteById(id);}
+
+ /** Marca el recordatorio como atendido y registra el gasto real en el balance. */
+ @PostMapping("/reminders/{id}/pay") FinanceEntry payReminder(@PathVariable Long id){
+  var r=reminders.findById(id).orElseThrow();
+  r.setStatus(ReminderStatus.DONE);reminders.save(r);
+  return finance.save(new FinanceEntry(EntryType.EXPENSE,r.getConcept(),r.getEstimatedAmount(),LocalDate.now()));
+ }
+
  @GetMapping("/dashboard") Map<String,Object> dashboard(){
   var allRooms=rooms.findAll();var allRes=reservations.findAll();var entries=finance.findAll();
   var income=entries.stream().filter(e->e.getType()==EntryType.INCOME).map(FinanceEntry::getAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
@@ -66,7 +102,16 @@ public class HotelController {
   long occupied=allRooms.stream().filter(r->r.getStatus()==RoomStatus.OCCUPIED).count();
   long active=allRes.stream().filter(r->r.getStatus()!=ReservationStatus.CANCELLED&&r.getStatus()!=ReservationStatus.COMPLETED).count();
   int suggested=Math.max(1,(int)Math.ceil((occupied+active)/4.0));
-  return Map.of("rooms",allRooms.size(),"occupied",occupied,"activeReservations",active,"openTasks",tasks.findAll().stream().filter(t->t.getStatus()!=TaskStatus.DONE).count(),"income",income,"expenses",expense,"balance",income.subtract(expense),"suggestedCleaners",suggested);
+  long openRequests=requests.findAll().stream().filter(x->x.getStatus()!=RequestStatus.RESOLVED).count();
+  var pending=reminders.findAllByOrderByDueDateAsc().stream().filter(x->x.getStatus()==ReminderStatus.PENDING).toList();
+  long dueSoon=pending.stream().filter(x->x.getDueDate()!=null&&!x.getDueDate().isAfter(LocalDate.now().plusDays(7))).count();
+  var result=new LinkedHashMap<String,Object>();
+  result.put("rooms",allRooms.size());result.put("occupied",occupied);result.put("activeReservations",active);
+  result.put("openTasks",tasks.findAll().stream().filter(t->t.getStatus()!=TaskStatus.DONE).count());
+  result.put("income",income);result.put("expenses",expense);result.put("balance",income.subtract(expense));
+  result.put("suggestedCleaners",suggested);result.put("openRequests",openRequests);
+  result.put("pendingReminders",pending.size());result.put("remindersDueSoon",dueSoon);
+  return result;
  }
 
  @GetMapping("/assistant") Map<String,String> assistant(@RequestParam String q){String s=q.toLowerCase();String answer=s.contains("desayuno")?"El desayuno se sirve de 6:30 a 10:00 a. m. en el restaurante del primer piso.":s.contains("mascota")||s.contains("pet")?"Tenemos habitaciones pet-friendly. Puedes identificarlas con el filtro ‘Mascotas’ al buscar.":s.contains("check")?"El check-in es desde las 3:00 p. m. y el check-out hasta las 12:00 m.":s.contains("wifi")?"El Wi-Fi está incluido en todas las habitaciones. La clave se entrega al hacer check-in.":s.contains("piscina")?"La piscina está abierta todos los días de 8:00 a. m. a 8:00 p. m.":"Puedo ayudarte con horarios, desayuno, Wi-Fi, piscina, mascotas, check-in y servicios del hotel.";return Map.of("answer",answer);}
