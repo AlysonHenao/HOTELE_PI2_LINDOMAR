@@ -1,6 +1,10 @@
 spring:
   application:
     name: lindomar-api
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/lindomar}
     username: ${SPRING_DATASOURCE_USERNAME:lindomar}

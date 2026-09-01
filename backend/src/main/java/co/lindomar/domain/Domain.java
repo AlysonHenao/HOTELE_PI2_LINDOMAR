@@ -1,5 +1,6 @@
 package co.lindomar.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -14,6 +15,19 @@ public final class Domain {
     public enum RoomStatus { AVAILABLE, OCCUPIED, MAINTENANCE }
     public enum RequestStatus { OPEN, IN_PROGRESS, RESOLVED }
     public enum EntryType { INCOME, EXPENSE }
+
+    /** Sesión opaca persistida: el servidor, no el navegador, decide quién crea la reserva. */
+    @Entity @Table(name = "auth_sessions")
+    public static class AuthSession {
+        @Id private String token;
+        private Long userId;
+        private LocalDateTime expiresAt;
+        public AuthSession() {}
+        public AuthSession(String token, Long userId, LocalDateTime expiresAt){this.token=token;this.userId=userId;this.expiresAt=expiresAt;}
+        public String getToken(){return token;} public void setToken(String v){token=v;}
+        public Long getUserId(){return userId;} public void setUserId(Long v){userId=v;}
+        public LocalDateTime getExpiresAt(){return expiresAt;} public void setExpiresAt(LocalDateTime v){expiresAt=v;}
+    }
     public enum ReminderStatus { PENDING, DONE }
 
     @Entity @Table(name = "users")
@@ -34,7 +48,7 @@ public final class Domain {
         public String getPhone(){return phone;} public void setPhone(String v){phone=v;}
     }
 
-    @Entity @Table(name = "rooms")
+    @Entity(name = "Room") @Table(name = "rooms")
     public static class Room {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
         @Column(unique = true) private String number;
@@ -68,6 +82,7 @@ public final class Domain {
         private LocalDate checkIn;
         private LocalDate checkOut;
         private int guests;
+        private BigDecimal amount;
         @Enumerated(EnumType.STRING) private ReservationStatus status;
         private String notes;
         public Reservation() {}
@@ -77,6 +92,7 @@ public final class Domain {
         public LocalDate getCheckIn(){return checkIn;} public void setCheckIn(LocalDate v){checkIn=v;}
         public LocalDate getCheckOut(){return checkOut;} public void setCheckOut(LocalDate v){checkOut=v;}
         public int getGuests(){return guests;} public void setGuests(int v){guests=v;}
+        public BigDecimal getAmount(){return amount;} public void setAmount(BigDecimal v){amount=v;}
         public ReservationStatus getStatus(){return status;} public void setStatus(ReservationStatus v){status=v;}
         public String getNotes(){return notes;} public void setNotes(String v){notes=v;}
     }
@@ -109,6 +125,10 @@ public final class Domain {
         @Enumerated(EnumType.STRING) private TaskStatus status;
         private LocalDate dueDate;
         private String priority;
+        @JsonIgnore @Column(columnDefinition="bytea") private byte[] completionPhoto;
+        private String completionPhotoName;
+        private String completionPhotoContentType;
+        private LocalDateTime completedAt;
         public StaffTask() {}
         public StaffTask(Long employeeId,String title,String description,TaskStatus status,LocalDate dueDate,String priority){this.employeeId=employeeId;this.title=title;this.description=description;this.status=status;this.dueDate=dueDate;this.priority=priority;}
         public Long getId(){return id;} public void setId(Long v){id=v;}
@@ -118,6 +138,11 @@ public final class Domain {
         public TaskStatus getStatus(){return status;} public void setStatus(TaskStatus v){status=v;}
         public LocalDate getDueDate(){return dueDate;} public void setDueDate(LocalDate v){dueDate=v;}
         public String getPriority(){return priority;} public void setPriority(String v){priority=v;}
+        public byte[] getCompletionPhoto(){return completionPhoto;} public void setCompletionPhoto(byte[] v){completionPhoto=v;}
+        public String getCompletionPhotoName(){return completionPhotoName;} public void setCompletionPhotoName(String v){completionPhotoName=v;}
+        public String getCompletionPhotoContentType(){return completionPhotoContentType;} public void setCompletionPhotoContentType(String v){completionPhotoContentType=v;}
+        public LocalDateTime getCompletedAt(){return completedAt;} public void setCompletedAt(LocalDateTime v){completedAt=v;}
+        @Transient public boolean getHasCompletionPhoto(){return completionPhoto!=null&&completionPhoto.length>0;}
     }
 
     @Entity @Table(name = "finance_entries")

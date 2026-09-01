@@ -1,8 +1,8 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {
   BedDouble, Bell, BellRing, CalendarClock, CalendarDays, CheckCircle2, CircleDollarSign,
-  ClipboardCheck, Clock3, ConciergeBell, DoorOpen, LayoutDashboard, LogOut, Map, Menu,
+  Camera, ClipboardCheck, Clock3, ConciergeBell, DoorOpen, Eye, LayoutDashboard, LogOut, Map, Menu,
   MessageCircle, Moon, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Sun, Trash2,
   TrendingDown, TrendingUp, UserPlus, Users, WalletCards, Waves, Wifi, X
 } from 'lucide-react';
@@ -10,7 +10,14 @@ import './styles.css';
 
 /* ---------- Utilidades ---------- */
 const api = async (path, options = {}) => {
-  const res = await fetch(`/api${path}`, {headers: {'Content-Type': 'application/json'}, ...options});
+  const isFormData = options.body instanceof FormData;
+  const token = localStorage.getItem('lindomar-token');
+  const headers = {
+    ...(!isFormData ? {'Content-Type': 'application/json'} : {}),
+    ...(token ? {Authorization: `Bearer ${token}`} : {}),
+    ...(options.headers || {})
+  };
+  const res = await fetch(`/api${path}`, {...options, headers});
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.message || 'No fue posible completar la acción');
   return body;
@@ -217,7 +224,7 @@ function Guest({page, user, notify, go}) {
 
 function GuestHome({user, go}) {
   const [reservations, setReservations] = useState([]);
-  useEffect(() => {api(`/reservations?guestId=${user.id}`).then(setReservations)}, [user.id]);
+  useEffect(() => {api('/reservations/mine').then(setReservations)}, [user.id]);
   const next = reservations.find(r => r.status === 'CONFIRMED' || r.status === 'CHECKED_IN');
 
   return <>
@@ -357,7 +364,7 @@ function RoomMap({rooms, allRooms, onSelect}) {
 }
 
 function ReserveModal({room, user, dates, onClose, onDone}) {
-  const [form, setForm] = useState({guestId: user.id, roomId: room.id, checkIn: dates.checkIn, checkOut: dates.checkOut, guests: 1, notes: ''});
+  const [form, setForm] = useState({roomId: room.id, checkIn: dates.checkIn, checkOut: dates.checkOut, guests: 1, notes: ''});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const nights = Math.max(1, Math.ceil((new Date(form.checkOut) - new Date(form.checkIn)) / 86400000));
@@ -394,7 +401,7 @@ function ReserveModal({room, user, dates, onClose, onDone}) {
 
 function Reservations({user, notify}) {
   const [items, setItems] = useState([]);
-  const load = () => api(`/reservations?guestId=${user.id}`).then(setItems);
+  const load = () => api('/reservations/mine').then(setItems);
   // Se envuelve en llaves a propósito: si el efecto devuelve la promesa de `load`,
   // React la toma como función de limpieza y falla al desmontar la vista.
   useEffect(() => {load()}, [user.id]);
@@ -505,7 +512,14 @@ function EmployeeTasks({user, notify}) {
   useEffect(() => {load()}, [user.id]);
   const update = async (id, status) => {
     await api(`/tasks/${id}`, {method: 'PUT', body: JSON.stringify({status})});
-    notify(status === 'DONE' ? 'Tarea marcada como completada' : 'Tarea actualizada'); load();
+    notify('Tarea actualizada'); load();
+  };
+  const complete = async (id, photo) => {
+    const body = new FormData();
+    if (photo) body.append('photo', photo);
+    await api(`/tasks/${id}/complete`, {method: 'POST', body});
+    notify(photo ? 'Tarea completada con evidencia fotográfica' : 'Tarea completada sin fotografía');
+    load();
   };
   const done = tasks.filter(t => t.status === 'DONE').length;
 
@@ -538,12 +552,37 @@ function EmployeeTasks({user, notify}) {
           <div><span className={`priority ${t.priority.toLowerCase()}`}>{t.priority}</span><small>{fmtDate(t.dueDate)}</small></div>
           <h3>{t.title}</h3><p>{t.description}</p>
           {status === 'PENDING' ? <button className="secondary" onClick={() => update(t.id, 'IN_PROGRESS')}>Iniciar tarea</button>
-            : status === 'IN_PROGRESS' ? <button className="primary" onClick={() => update(t.id, 'DONE')}><CheckCircle2/>Marcar completada</button>
-            : <span className="done-mark"><CheckCircle2/>Finalizada</span>}
+            : status === 'IN_PROGRESS' ? <TaskCompletion task={t} onComplete={complete}/>
+            : <><span className="done-mark"><CheckCircle2/>Finalizada</span>
+              {t.hasCompletionPhoto && <span className="evidence-sent"><Camera size={14}/>Evidencia enviada</span>}</>}
         </article>)}
       </section>)}
     </div>
   </>;
+}
+
+/** HU-38: la fotografía es opcional y se envía junto con el cierre de la tarea. */
+function TaskCompletion({task, onComplete}) {
+  const [photo, setPhoto] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const choose = e => {
+    const file = e.target.files?.[0] || null;
+    if (file && file.size > 5 * 1024 * 1024) {setError('La fotografía no puede superar 5 MB'); setPhoto(null); return}
+    setError(''); setPhoto(file);
+  };
+  const finish = async () => {
+    setBusy(true); setError('');
+    try {await onComplete(task.id, photo)} catch (err) {setError(err.message)} finally {setBusy(false)}
+  };
+  return <div className="task-completion">
+    <label className="photo-picker">
+      <Camera size={16}/><span>{photo ? photo.name : 'Adjuntar fotografía (opcional)'}</span>
+      <input type="file" accept="image/*" capture="environment" onChange={choose}/>
+    </label>
+    {error && <small className="form-error">{error}</small>}
+    <button className="primary" onClick={finish} disabled={busy}><CheckCircle2/>{busy ? 'Enviando…' : 'Completar tarea'}</button>
+  </div>;
 }
 
 /**
@@ -781,18 +820,41 @@ function RoomModal({room, isNew, onClose, onSave}) {
 
 function AdminReservations({notify}) {
   const [items, setItems] = useState([]);
+  const [filters, setFilters] = useState({query: '', status: 'ALL', from: '', to: ''});
   const load = () => api('/reservations').then(setItems);
   useEffect(() => {load()}, []);
   const update = async (r, status) => {
     await api(`/reservations/${r.id}`, {method: 'PUT', body: JSON.stringify({status})});
     notify('Estado de reserva actualizado'); load();
   };
+  const filtered = useMemo(() => items.filter(r => {
+    const query = filters.query.trim().toLowerCase();
+    const matchesQuery = !query || r.guestName.toLowerCase().includes(query) || r.roomNumber.toLowerCase().includes(query) || String(r.id).includes(query);
+    const matchesStatus = filters.status === 'ALL' || r.status === filters.status;
+    const matchesFrom = !filters.from || r.checkIn >= filters.from;
+    const matchesTo = !filters.to || r.checkOut <= filters.to;
+    return matchesQuery && matchesStatus && matchesFrom && matchesTo;
+  }), [items, filters]);
 
   return <>
     <div className="section-head"><div><h3>Reservas de huéspedes</h3><p className="muted">Consulta y administra el ciclo de cada estadía.</p></div></div>
+    <div className="reservation-filters" aria-label="Filtros de reservas">
+      <label>Huésped, habitación o número
+        <input value={filters.query} onChange={e => setFilters({...filters, query: e.target.value})} placeholder="Buscar reserva"/>
+      </label>
+      <label>Estado
+        <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
+          <option value="ALL">Todos</option><option value="CONFIRMED">Confirmada</option><option value="CHECKED_IN">Alojado</option><option value="COMPLETED">Finalizada</option><option value="CANCELLED">Cancelada</option>
+        </select>
+      </label>
+      <label>Ingreso desde<input type="date" value={filters.from} onChange={e => setFilters({...filters, from: e.target.value})}/></label>
+      <label>Salida hasta<input type="date" value={filters.to} onChange={e => setFilters({...filters, to: e.target.value})}/></label>
+      <button className="ghost" onClick={() => setFilters({query: '', status: 'ALL', from: '', to: ''})}>Limpiar</button>
+      <span className="filter-count">{filtered.length} de {items.length}</span>
+    </div>
     <div className="table-wrap"><table>
       <thead><tr><th>Reserva</th><th>Huésped</th><th>Habitación</th><th>Fechas</th><th>Total</th><th>Estado</th></tr></thead>
-      <tbody>{items.map(r => <tr key={r.id}>
+      <tbody>{filtered.map(r => <tr key={r.id}>
         <td><strong>#{String(r.id).padStart(4, '0')}</strong></td>
         <td>{r.guestName}</td>
         <td>{r.roomNumber} · {r.roomType}</td>
@@ -804,7 +866,7 @@ function AdminReservations({notify}) {
         </select></td>
       </tr>)}</tbody>
     </table>
-    {!items.length && <div className="empty small"><CalendarDays/><p>Aún no hay reservas.</p></div>}
+    {!filtered.length && <div className="empty small"><CalendarDays/><p>No hay reservas que coincidan con los filtros.</p></div>}
     </div>
   </>;
 }
@@ -826,6 +888,7 @@ function AdminTasks({notify}) {
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [show, setShow] = useState(false);
+  const [photoTask, setPhotoTask] = useState(null);
   const [form, setForm] = useState({employeeId: '', title: '', description: '', dueDate: today(), priority: 'Media', status: 'PENDING'});
   const load = () => api('/tasks').then(setTasks);
   useEffect(() => {
@@ -854,6 +917,7 @@ function AdminTasks({notify}) {
       <div><small>Responsable</small><strong>{name(t.employeeId)}</strong></div>
       <div><small>Entrega</small><strong>{fmtDate(t.dueDate)}</strong></div>
       <span className={`status ${t.status.toLowerCase()}`}>{label[t.status]}</span>
+      {t.hasCompletionPhoto && <button className="evidence-button" onClick={() => setPhotoTask(t)}><Eye size={16}/>Ver evidencia</button>}
     </article>)}</div>
 
     {show && <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && setShow(false)}>
@@ -875,7 +939,31 @@ function AdminTasks({notify}) {
         <button className="primary wide">Asignar y notificar</button>
       </form>
     </div>}
+    {photoTask && <EvidenceModal task={photoTask} onClose={() => setPhotoTask(null)}/>}
   </>;
+}
+
+function EvidenceModal({task, onClose}) {
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let objectUrl = '';
+    fetch(`/api/tasks/${task.id}/photo`, {headers: {Authorization: `Bearer ${localStorage.getItem('lindomar-token') || ''}`}})
+      .then(response => {if (!response.ok) throw new Error('No fue posible cargar la fotografía'); return response.blob()})
+      .then(blob => {objectUrl = URL.createObjectURL(blob); setUrl(objectUrl)})
+      .catch(err => setError(err.message));
+    return () => {if (objectUrl) URL.revokeObjectURL(objectUrl)};
+  }, [task.id]);
+  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal evidence-modal">
+      <button type="button" className="modal-close" onClick={onClose}><X/></button>
+      <span className="eyebrow green">EVIDENCIA DE FINALIZACIÓN</span>
+      <h2>{task.title}</h2>
+      <p className="muted">{task.completionPhotoName}{task.completedAt ? ` · ${new Date(task.completedAt).toLocaleString('es-CO')}` : ''}</p>
+      {error && <p className="form-error">{error}</p>}
+      {url ? <img src={url} alt={`Evidencia de la tarea ${task.title}`}/> : !error && <div className="loader">Cargando fotografía…</div>}
+    </div>
+  </div>;
 }
 
 function Finance({notify}) {
@@ -1012,15 +1100,18 @@ class ErrorBoundary extends React.Component {
 
 /* ---------- Raíz ---------- */
 function App() {
-  const [user, setUser] = useState(() => {
-    try {return JSON.parse(localStorage.getItem('lindomar-user'))} catch {return null}
-  });
+  const [user, setUser] = useState(undefined);
   // Fuente única del tema: aplica también a la pantalla de inicio de sesión.
   const [theme, toggleTheme] = useTheme();
-  const login = u => {localStorage.setItem('lindomar-user', JSON.stringify(u)); setUser(u)};
-  const logout = () => {localStorage.removeItem('lindomar-user'); setUser(null)};
+  useEffect(() => {
+    localStorage.removeItem('lindomar-user');
+    if (!localStorage.getItem('lindomar-token')) {setUser(null); return}
+    api('/auth/me').then(setUser).catch(() => {localStorage.removeItem('lindomar-token'); setUser(null)});
+  }, []);
+  const login = session => {localStorage.setItem('lindomar-token', session.token); setUser(session.user)};
+  const logout = () => {api('/auth/logout', {method: 'POST'}).catch(() => {}).finally(() => {localStorage.removeItem('lindomar-token'); setUser(null)})};
   return <ErrorBoundary>
-    {user
+    {user === undefined ? <div className="loader">Validando sesión…</div> : user
       ? <Shell user={user} onLogout={logout} theme={theme} toggleTheme={toggleTheme}/>
       : <Login onLogin={login}/>}
   </ErrorBoundary>;

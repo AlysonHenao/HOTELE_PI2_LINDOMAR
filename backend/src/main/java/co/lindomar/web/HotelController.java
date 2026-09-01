@@ -3,7 +3,11 @@ package co.lindomar.web;
 import co.lindomar.domain.Domain.*;
 import co.lindomar.repository.*;
 import org.springframework.http.*;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
@@ -15,17 +19,18 @@ import java.util.*;
 public class HotelController {
  private final UserRepository users; private final RoomRepository rooms; private final ReservationRepository reservations;
  private final RequestRepository requests; private final TaskRepository tasks; private final FinanceRepository finance;
- private final ReminderRepository reminders;
- public HotelController(UserRepository u,RoomRepository r,ReservationRepository rs,RequestRepository rq,TaskRepository t,FinanceRepository f,ReminderRepository rm){users=u;rooms=r;reservations=rs;requests=rq;tasks=t;finance=f;reminders=rm;}
+ private final ReminderRepository reminders; private final AuthSessionRepository sessions;
+ public HotelController(UserRepository u,RoomRepository r,ReservationRepository rs,RequestRepository rq,TaskRepository t,FinanceRepository f,ReminderRepository rm,AuthSessionRepository s){users=u;rooms=r;reservations=rs;requests=rq;tasks=t;finance=f;reminders=rm;sessions=s;}
 
  public record LoginRequest(String email,String password){}
  public record RegisterRequest(String name,String email,String password,String phone){}
  public record PublicUser(Long id,String name,String email,Role role,String phone){}
+ public record AuthResponse(PublicUser user,String token){}
  public record ReservationView(Long id,Long guestId,String guestName,Long roomId,String roomNumber,String roomType,LocalDate checkIn,LocalDate checkOut,int guests,ReservationStatus status,String notes,BigDecimal total){}
 
  @PostMapping("/auth/login") ResponseEntity<?> login(@RequestBody LoginRequest input){
   return users.findByEmailIgnoreCase(input.email()).filter(u->Objects.equals(u.getPassword(),input.password()))
-   .<ResponseEntity<?>>map(u->ResponseEntity.ok(new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone())))
+   .<ResponseEntity<?>>map(u->ResponseEntity.ok(authResponse(u)))
    .orElseGet(()->ResponseEntity.status(401).body(Map.of("message","Correo o contraseña incorrectos")));
  }
 
@@ -36,8 +41,11 @@ public class HotelController {
   if(input.password()==null||input.password().length()<6)return ResponseEntity.badRequest().body(Map.of("message","La contraseña debe tener al menos 6 caracteres"));
   if(users.findByEmailIgnoreCase(input.email()).isPresent())return ResponseEntity.status(409).body(Map.of("message","Ya existe una cuenta registrada con ese correo"));
   var saved=users.save(new UserAccount(input.name().trim(),input.email().trim(),input.password(),Role.GUEST,input.phone()));
-  return ResponseEntity.ok(new PublicUser(saved.getId(),saved.getName(),saved.getEmail(),saved.getRole(),saved.getPhone()));
+  return ResponseEntity.ok(authResponse(saved));
  }
+ @GetMapping("/auth/me") PublicUser currentUser(@RequestHeader(value="Authorization",required=false)String authorization){return publicUser(requireUser(authorization,null));}
+ @Transactional
+ @PostMapping("/auth/logout") ResponseEntity<Void> logout(@RequestHeader(value="Authorization",required=false)String authorization){tokenFrom(authorization).ifPresent(sessions::deleteByToken);return ResponseEntity.noContent().build();}
 
  @GetMapping("/users") List<PublicUser> allUsers(){return users.findAll().stream().map(u->new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone())).toList();}
  @PutMapping("/users/{id}") PublicUser updateUser(@PathVariable Long id,@RequestBody UserAccount data){var u=users.findById(id).orElseThrow(); if(data.getName()!=null)u.setName(data.getName());if(data.getPhone()!=null)u.setPhone(data.getPhone());if(data.getRole()!=null)u.setRole(data.getRole());users.save(u);return new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone());}
@@ -51,22 +59,34 @@ public class HotelController {
  @DeleteMapping("/rooms/{id}") void deleteRoom(@PathVariable Long id){rooms.deleteById(id);}
 
  @GetMapping("/reservations") List<ReservationView> getReservations(@RequestParam(required=false)Long guestId){var list=guestId==null?reservations.findAll():reservations.findByGuestIdOrderByCheckInDesc(guestId);return list.stream().map(this::view).toList();}
- @PostMapping("/reservations") ResponseEntity<?> createReservation(@RequestBody Reservation r){
+ @GetMapping("/reservations/mine") List<ReservationView> myReservations(@RequestHeader(value="Authorization",required=false)String authorization){var guest=requireUser(authorization,Role.GUEST);return reservations.findByGuestIdOrderByCheckInDesc(guest.getId()).stream().map(this::view).toList();}
+ @Transactional
+ @PostMapping("/reservations") ResponseEntity<?> createReservation(@RequestHeader(value="Authorization",required=false)String authorization,@RequestBody Reservation r){
+  var guest=requireUser(authorization,Role.GUEST);
   if(r.getCheckIn()==null||r.getCheckOut()==null||!r.getCheckOut().isAfter(r.getCheckIn()))return ResponseEntity.badRequest().body(Map.of("message","Las fechas seleccionadas no son válidas"));
-  var room=rooms.findById(r.getRoomId()).orElseThrow();
-  if(r.getGuests()>room.getCapacity())return ResponseEntity.badRequest().body(Map.of("message","La habitación no admite esa cantidad de huéspedes"));
+  var room=rooms.findByIdForUpdate(r.getRoomId()).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Habitación no encontrada"));
+  if(room.getStatus()!=RoomStatus.AVAILABLE)return ResponseEntity.status(409).body(Map.of("message","La habitación no está disponible"));
+  if(r.getGuests()<1||r.getGuests()>room.getCapacity())return ResponseEntity.badRequest().body(Map.of("message","La habitación no admite esa cantidad de huéspedes"));
   if(reservations.existsByRoomIdAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(r.getRoomId(),ReservationStatus.CANCELLED,r.getCheckOut(),r.getCheckIn()))return ResponseEntity.status(409).body(Map.of("message","La habitación ya no está disponible en esas fechas"));
+  r.setGuestId(guest.getId());
+  r.setAmount(room.getPrice().multiply(BigDecimal.valueOf(ChronoUnit.DAYS.between(r.getCheckIn(),r.getCheckOut()))));
   r.setStatus(ReservationStatus.CONFIRMED);
+  if(!r.getCheckIn().isAfter(LocalDate.now())&&r.getCheckOut().isAfter(LocalDate.now())){room.setStatus(RoomStatus.OCCUPIED);rooms.save(room);}
   var saved=view(reservations.save(r));
   // HU-14: al confirmarse la reserva el ingreso se suma automáticamente al balance del hotel.
   finance.save(new FinanceEntry(EntryType.INCOME,"Reserva #"+saved.id()+" · Habitación "+saved.roomNumber(),saved.total(),LocalDate.now()));
   return ResponseEntity.ok(saved);
  }
- @PutMapping("/reservations/{id}") ReservationView updateReservation(@PathVariable Long id,@RequestBody Reservation data){var r=reservations.findById(id).orElseThrow();if(data.getCheckIn()!=null)r.setCheckIn(data.getCheckIn());if(data.getCheckOut()!=null)r.setCheckOut(data.getCheckOut());if(data.getGuests()>0)r.setGuests(data.getGuests());if(data.getStatus()!=null)r.setStatus(data.getStatus());if(data.getNotes()!=null)r.setNotes(data.getNotes());return view(reservations.save(r));}
+ @Transactional
+ @PutMapping("/reservations/{id}") ReservationView updateReservation(@PathVariable Long id,@RequestBody Reservation data){var r=reservations.findById(id).orElseThrow();if(data.getCheckIn()!=null)r.setCheckIn(data.getCheckIn());if(data.getCheckOut()!=null)r.setCheckOut(data.getCheckOut());if(data.getGuests()>0)r.setGuests(data.getGuests());if(data.getStatus()!=null){r.setStatus(data.getStatus());var room=rooms.findByIdForUpdate(r.getRoomId()).orElseThrow();if(data.getStatus()==ReservationStatus.CHECKED_IN)room.setStatus(RoomStatus.OCCUPIED);if(data.getStatus()==ReservationStatus.COMPLETED||data.getStatus()==ReservationStatus.CANCELLED)room.setStatus(RoomStatus.AVAILABLE);rooms.save(room);}if(data.getNotes()!=null)r.setNotes(data.getNotes());return view(reservations.save(r));}
+ @Transactional
  @DeleteMapping("/reservations/{id}") void cancelReservation(@PathVariable Long id){
   var r=reservations.findById(id).orElseThrow();
   if(r.getStatus()==ReservationStatus.CANCELLED)return;
   r.setStatus(ReservationStatus.CANCELLED);reservations.save(r);
+  var room=rooms.findByIdForUpdate(r.getRoomId()).orElseThrow();
+  if(room.getStatus()==RoomStatus.OCCUPIED)room.setStatus(RoomStatus.AVAILABLE);
+  rooms.save(room);
   // HU-14: se registra el reembolso para que el balance siga siendo coherente tras la cancelación.
   var v=view(r);
   finance.save(new FinanceEntry(EntryType.EXPENSE,"Reembolso reserva #"+v.id()+" · Habitación "+v.roomNumber(),v.total(),LocalDate.now()));
@@ -79,6 +99,25 @@ public class HotelController {
  @GetMapping("/tasks") List<StaffTask> getTasks(@RequestParam(required=false)Long employeeId){return employeeId==null?tasks.findAll():tasks.findByEmployeeIdOrderByDueDateAsc(employeeId);}
  @PostMapping("/tasks") StaffTask createTask(@RequestBody StaffTask task){if(task.getStatus()==null)task.setStatus(TaskStatus.PENDING);return tasks.save(task);}
  @PutMapping("/tasks/{id}") StaffTask updateTask(@PathVariable Long id,@RequestBody StaffTask data){var t=tasks.findById(id).orElseThrow();if(data.getStatus()!=null)t.setStatus(data.getStatus());if(data.getTitle()!=null)t.setTitle(data.getTitle());if(data.getDescription()!=null)t.setDescription(data.getDescription());if(data.getDueDate()!=null)t.setDueDate(data.getDueDate());if(data.getPriority()!=null)t.setPriority(data.getPriority());return tasks.save(t);}
+ @PostMapping(value="/tasks/{id}/complete",consumes=MediaType.MULTIPART_FORM_DATA_VALUE) ResponseEntity<?> completeTask(@RequestHeader(value="Authorization",required=false)String authorization,@PathVariable Long id,@RequestPart(value="photo",required=false)MultipartFile photo) throws IOException{
+  var employee=requireUser(authorization,Role.EMPLOYEE);
+  var task=tasks.findById(id).orElseThrow();
+  if(!Objects.equals(task.getEmployeeId(),employee.getId()))return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message","La tarea no está asignada a este empleado"));
+  if(photo!=null&&!photo.isEmpty()){
+   if(photo.getSize()>5*1024*1024)return ResponseEntity.badRequest().body(Map.of("message","La fotografía no puede superar 5 MB"));
+   if(photo.getContentType()==null||!photo.getContentType().startsWith("image/"))return ResponseEntity.badRequest().body(Map.of("message","El archivo debe ser una imagen"));
+   task.setCompletionPhoto(photo.getBytes());task.setCompletionPhotoName(photo.getOriginalFilename());task.setCompletionPhotoContentType(photo.getContentType());
+  }
+  task.setStatus(TaskStatus.DONE);task.setCompletedAt(LocalDateTime.now());
+  return ResponseEntity.ok(tasks.save(task));
+ }
+ @GetMapping("/tasks/{id}/photo") ResponseEntity<byte[]> taskPhoto(@RequestHeader(value="Authorization",required=false)String authorization,@PathVariable Long id){
+  requireUser(authorization,Role.ADMIN);
+  var task=tasks.findById(id).orElseThrow();
+  if(!task.getHasCompletionPhoto())return ResponseEntity.notFound().build();
+  var type=task.getCompletionPhotoContentType()==null?MediaType.APPLICATION_OCTET_STREAM:MediaType.parseMediaType(task.getCompletionPhotoContentType());
+  return ResponseEntity.ok().contentType(type).header(HttpHeaders.CONTENT_DISPOSITION,"inline; filename=\""+task.getCompletionPhotoName().replace("\"","")+"\"").body(task.getCompletionPhoto());
+ }
 
  @GetMapping("/finance") List<FinanceEntry> getFinance(){return finance.findAll();}
  @PostMapping("/finance") FinanceEntry createFinance(@RequestBody FinanceEntry e){if(e.getDate()==null)e.setDate(LocalDate.now());return finance.save(e);}
@@ -116,6 +155,10 @@ public class HotelController {
 
  @GetMapping("/assistant") Map<String,String> assistant(@RequestParam String q){String s=q.toLowerCase();String answer=s.contains("desayuno")?"El desayuno se sirve de 6:30 a 10:00 a. m. en el restaurante del primer piso.":s.contains("mascota")||s.contains("pet")?"Tenemos habitaciones pet-friendly. Puedes identificarlas con el filtro ‘Mascotas’ al buscar.":s.contains("check")?"El check-in es desde las 3:00 p. m. y el check-out hasta las 12:00 m.":s.contains("wifi")?"El Wi-Fi está incluido en todas las habitaciones. La clave se entrega al hacer check-in.":s.contains("piscina")?"La piscina está abierta todos los días de 8:00 a. m. a 8:00 p. m.":"Puedo ayudarte con horarios, desayuno, Wi-Fi, piscina, mascotas, check-in y servicios del hotel.";return Map.of("answer",answer);}
 
- private ReservationView view(Reservation r){var room=rooms.findById(r.getRoomId()).orElse(null);var guest=users.findById(r.getGuestId()).orElse(null);long nights=r.getCheckIn()!=null&&r.getCheckOut()!=null?Math.max(1,ChronoUnit.DAYS.between(r.getCheckIn(),r.getCheckOut())):1;BigDecimal total=room==null?BigDecimal.ZERO:room.getPrice().multiply(BigDecimal.valueOf(nights));return new ReservationView(r.getId(),r.getGuestId(),guest==null?"Huésped":guest.getName(),r.getRoomId(),room==null?"—":room.getNumber(),room==null?"—":room.getType(),r.getCheckIn(),r.getCheckOut(),r.getGuests(),r.getStatus(),r.getNotes(),total);}
+ private ReservationView view(Reservation r){var room=rooms.findById(r.getRoomId()).orElse(null);var guest=users.findById(r.getGuestId()).orElse(null);long nights=r.getCheckIn()!=null&&r.getCheckOut()!=null?Math.max(1,ChronoUnit.DAYS.between(r.getCheckIn(),r.getCheckOut())):1;BigDecimal calculated=room==null?BigDecimal.ZERO:room.getPrice().multiply(BigDecimal.valueOf(nights));BigDecimal total=r.getAmount()==null?calculated:r.getAmount();return new ReservationView(r.getId(),r.getGuestId(),guest==null?"Huésped":guest.getName(),r.getRoomId(),room==null?"—":room.getNumber(),room==null?"—":room.getType(),r.getCheckIn(),r.getCheckOut(),r.getGuests(),r.getStatus(),r.getNotes(),total);}
+ private PublicUser publicUser(UserAccount u){return new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone());}
+ private AuthResponse authResponse(UserAccount u){var token=UUID.randomUUID().toString();sessions.save(new AuthSession(token,u.getId(),LocalDateTime.now().plusHours(12)));return new AuthResponse(publicUser(u),token);}
+ private Optional<String> tokenFrom(String authorization){if(authorization==null||!authorization.startsWith("Bearer "))return Optional.empty();return Optional.of(authorization.substring(7).trim()).filter(x->!x.isBlank());}
+ private UserAccount requireUser(String authorization,Role role){var token=tokenFrom(authorization).orElseThrow(()->new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Sesión requerida"));var session=sessions.findByToken(token).filter(s->s.getExpiresAt().isAfter(LocalDateTime.now())).orElseThrow(()->new ResponseStatusException(HttpStatus.UNAUTHORIZED,"La sesión venció"));var user=users.findById(session.getUserId()).orElseThrow(()->new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Usuario no encontrado"));if(role!=null&&user.getRole()!=role)throw new ResponseStatusException(HttpStatus.FORBIDDEN,"El rol no permite esta acción");return user;}
 }
 
