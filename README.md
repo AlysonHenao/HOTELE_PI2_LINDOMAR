@@ -37,5 +37,14 @@ Los datos quedan guardados en PostgreSQL mediante un volumen de Docker. Para det
 - **Recordatorios de gastos programados**, con aviso de los próximos a vencer y registro del gasto en un clic.
 - El mapa de habitaciones ahora se construye a partir de las habitaciones reales del hotel.
 
-Este prototipo usa autenticación simplificada para demostración; antes de producción debe incorporarse Spring Security, contraseñas cifradas, permisos del lado servidor y validaciones de negocio más estrictas.
+Este prototipo usa sesiones opacas y contraseñas protegidas con BCrypt. La autorización se aplica a operaciones concretas; todavía requiere una revisión integral de permisos y reglas de negocio antes de producción.
+
+### Sprint 1 — HU-01, HU-04 y HU-18
+
+- **HU-01:** registro validado, correo normalizado y único, contraseñas BCrypt y cuentas siempre de huésped. Al iniciar se convierten las contraseñas en texto plano de bases del prototipo; las que ya tienen BCrypt se conservan.
+- **HU-04:** la búsqueda rechaza fechas incompletas, pasadas o con salida igual/anterior a la llegada. Conserva el catálogo sin fechas para los consumidores existentes. Los periodos se interpretan como `[llegada, salida)`: otra estadía puede empezar el día de salida. Las reservas canceladas no bloquean disponibilidad.
+- **HU-18:** estados `AVAILABLE`, `OCCUPIED`, `RESERVED`, `MAINTENANCE` y `OUT_OF_SERVICE`. El administrador puede cambiarlos desde el inventario o la edición. `PATCH /api/rooms/{id}/status` acepta `{"status":"RESERVED"}` y conserva las demás propiedades. Solo `AVAILABLE` aparece como reservable. `RESERVED` es un bloqueo operativo manual; las reservas con fechas siguen controlando sus propios cruces y no bloquean periodos futuros sin solapamiento.
+- El inicio actualiza la restricción de estados de PostgreSQL de volúmenes existentes, sin borrar sus datos. Los cambios de habitaciones y roles requieren una sesión de administrador.
+
+Pruebas: `cd backend && mvn verify`. Compilación frontend: `cd frontend && npm ci && npm run build`.
 

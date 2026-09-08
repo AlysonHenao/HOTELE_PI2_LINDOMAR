@@ -12,7 +12,7 @@ public final class Domain {
     public enum Role { GUEST, EMPLOYEE, ADMIN }
     public enum ReservationStatus { CONFIRMED, CHECKED_IN, COMPLETED, CANCELLED }
     public enum TaskStatus { PENDING, IN_PROGRESS, DONE }
-    public enum RoomStatus { AVAILABLE, OCCUPIED, MAINTENANCE }
+    public enum RoomStatus { AVAILABLE, OCCUPIED, RESERVED, MAINTENANCE, OUT_OF_SERVICE }
     public enum RequestStatus { OPEN, IN_PROGRESS, RESOLVED }
     public enum EntryType { INCOME, EXPENSE }
 
@@ -35,6 +35,7 @@ public final class Domain {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
         private String name;
         @Column(unique = true, nullable = false) private String email;
+        @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
         private String password;
         @Enumerated(EnumType.STRING) private Role role;
         private String phone;

@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {
   BedDouble, Bell, BellRing, CalendarClock, CalendarDays, CheckCircle2, CircleDollarSign,
@@ -25,14 +25,15 @@ const api = async (path, options = {}) => {
 const money = v => new Intl.NumberFormat('es-CO', {style: 'currency', currency: 'COP', maximumFractionDigits: 0}).format(v || 0);
 const label = {
   GUEST: 'Huésped', EMPLOYEE: 'Empleado', ADMIN: 'Administrador',
-  AVAILABLE: 'Disponible', OCCUPIED: 'Ocupada', MAINTENANCE: 'Mantenimiento',
+  AVAILABLE: 'Disponible', OCCUPIED: 'Ocupada', RESERVED: 'Reservada', MAINTENANCE: 'Mantenimiento', OUT_OF_SERVICE: 'Fuera de servicio',
   CONFIRMED: 'Confirmada', CHECKED_IN: 'Alojado', COMPLETED: 'Finalizada', CANCELLED: 'Cancelada',
   PENDING: 'Pendiente', IN_PROGRESS: 'En progreso', DONE: 'Completada',
   OPEN: 'Abierta', RESOLVED: 'Resuelta', INCOME: 'Ingreso', EXPENSE: 'Gasto'
 };
 const fmtDate = d => d ? new Date(`${d}T12:00:00`).toLocaleDateString('es-CO', {day: 'numeric', month: 'short'}) : '—';
-const today = () => new Date().toISOString().slice(0, 10);
-const future = (days = 1) => {const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10)};
+const localDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const today = () => localDate(new Date());
+const future = (days = 1) => {const d = new Date(); d.setDate(d.getDate() + days); return localDate(d)};
 const initials = name => name.split(' ').map(x => x[0]).slice(0, 2).join('');
 /** Días restantes hasta una fecha; negativo si ya venció. */
 const daysUntil = d => Math.ceil((new Date(`${d}T12:00:00`) - new Date()) / 86400000);
@@ -266,12 +267,25 @@ function Rooms({user, notify}) {
   const [mapView, setMapView] = useState(false);
   const [selected, setSelected] = useState(null);
   const [filters, setFilters] = useState({type: '', capacity: '', maxPrice: '', balcony: false, petFriendly: false, checkIn: today(), checkOut: future(1)});
+  const [searchError, setSearchError] = useState('');
+  const [searchedDates, setSearchedDates] = useState(null);
+  const searchVersion = useRef(0);
 
-  const load = () => {
+  const load = async () => {
+    const version = ++searchVersion.current;
+    setSearchError('');setRooms([]);setSearchedDates(null);
+    if (!filters.checkIn || !filters.checkOut || filters.checkIn < today() || filters.checkOut <= filters.checkIn) {
+      setSearchError('Selecciona una llegada desde hoy y una salida posterior a la llegada.');
+      setLoading(false);return;
+    }
     setLoading(true);
     const p = new URLSearchParams();
     Object.entries(filters).forEach(([k, v]) => v !== '' && v !== false && p.set(k, v));
-    api(`/rooms?${p}`).then(setRooms).finally(() => setLoading(false));
+    try {
+      const results = await api(`/rooms?${p}`);
+      if (version === searchVersion.current) {setRooms(results);setSearchedDates({checkIn: filters.checkIn, checkOut: filters.checkOut})}
+    } catch (err) {if (version === searchVersion.current) setSearchError(err.message)}
+    finally {if (version === searchVersion.current) setLoading(false)}
   };
   useEffect(() => {load(); api('/rooms/all').then(setAllRooms)}, []);
 
@@ -303,7 +317,8 @@ function Rooms({user, notify}) {
       <button className="primary search-button" onClick={load}><Search/>Buscar</button>
     </div>
 
-    {loading ? <div className="loader">Buscando disponibilidad…</div>
+    {searchError ? <p className="form-error" role="alert">{searchError}</p>
+      : loading ? <div className="loader">Buscando disponibilidad…</div>
       : mapView ? <RoomMap rooms={rooms} allRooms={allRooms} onSelect={setSelected}/>
       : <div className="room-grid">
           {rooms.map(r => <RoomCard key={r.id} room={r} onSelect={setSelected}/>)}
@@ -312,8 +327,8 @@ function Rooms({user, notify}) {
           </div>}
         </div>}
 
-    {selected && <ReserveModal room={selected} user={user} dates={filters} onClose={() => setSelected(null)}
-      onDone={() => {setSelected(null); notify('Reserva confirmada. ¡Te esperamos!')}}/>}
+    {selected && searchedDates && <ReserveModal room={selected} user={user} dates={searchedDates} onClose={() => setSelected(null)}
+      onDone={() => {setSelected(null); load(); notify('Reserva confirmada. ¡Te esperamos!')}}/>}
   </>;
 }
 
@@ -356,7 +371,7 @@ function RoomMap({rooms, allRooms, onSelect}) {
         return <button key={room.id} className={free ? 'available' : 'occupied'} disabled={!free}
           onClick={() => free && onSelect(room)}>
           <DoorOpen/><span>{room.number}</span>
-          <small>{free ? money(room.price) : label[room.status] || 'No disponible'}</small>
+          <small>{free ? money(room.price) : room.status === 'AVAILABLE' ? 'No disponible en estas fechas' : label[room.status] || 'No disponible'}</small>
         </button>;
       })}</div>
     </div>)}
@@ -744,12 +759,23 @@ function AdminRooms({notify}) {
   const [rooms, setRooms] = useState([]);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [statusError, setStatusError] = useState('');
+  const [updating, setUpdating] = useState(null);
   const load = () => api('/rooms/all').then(setRooms);
   useEffect(() => {load()}, []);
 
   const save = async room => {
     await api(`/rooms/${room.id}`, {method: 'PUT', body: JSON.stringify(room)});
     setEditing(null); notify('Habitación actualizada'); load();
+  };
+  const changeStatus = async (room, status) => {
+    setStatusError('');setUpdating(room.id);
+    try {
+      const updated = await api(`/rooms/${room.id}/status`, {method: 'PATCH', body: JSON.stringify({status})});
+      setRooms(items => items.map(item => item.id === updated.id ? updated : item));
+      notify(`Habitación ${updated.number}: ${label[updated.status]}`);
+    } catch (err) {setStatusError(err.message)}
+    finally {setUpdating(null)}
   };
   const create = async room => {
     await api('/rooms', {method: 'POST', body: JSON.stringify(room)});
@@ -766,13 +792,16 @@ function AdminRooms({notify}) {
       <div><h3>Inventario de habitaciones</h3><p className="muted">Actualiza el estado operativo y la información principal.</p></div>
       <button className="primary" onClick={() => setCreating(true)}><Plus size={17}/>Nueva habitación</button>
     </div>
+    {statusError && <p className="form-error" role="alert">{statusError}</p>}
     <div className="table-wrap"><table>
       <thead><tr><th>Habitación</th><th>Tipo</th><th>Capacidad</th><th>Precio/noche</th><th>Características</th><th>Estado</th><th></th></tr></thead>
       <tbody>{rooms.map(r => <tr key={r.id}>
         <td><strong>{r.number}</strong><small>Piso {r.floor}</small></td>
         <td>{r.type}</td><td>{r.capacity} personas</td><td>{money(r.price)}</td>
         <td><div className="tags">{r.balcony && <span>Balcón</span>}{r.petFriendly && <span>Mascotas</span>}</div></td>
-        <td><span className={`status ${r.status.toLowerCase()}`}>{label[r.status]}</span></td>
+        <td><select aria-label={`Estado de habitación ${r.number}`} value={r.status} disabled={updating !== null} onChange={e => changeStatus(r, e.target.value)}>
+          {['AVAILABLE', 'OCCUPIED', 'RESERVED', 'MAINTENANCE', 'OUT_OF_SERVICE'].map(status => <option key={status} value={status}>{label[status]}</option>)}
+        </select></td>
         <td><div className="request-actions">
           <button className="icon-button" title="Editar" onClick={() => setEditing({...r})}><Settings2/></button>
           <button className="icon-button danger" title="Eliminar" onClick={() => remove(r)}><Trash2/></button>
@@ -790,9 +819,11 @@ function AdminRooms({notify}) {
 
 function RoomModal({room, isNew, onClose, onSave}) {
   const [data, setData] = useState(room);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const set = (k, v) => setData(d => ({...d, [k]: v}));
   return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
-    <form className="modal" onSubmit={e => {e.preventDefault(); onSave(data)}}>
+    <form className="modal" onSubmit={async e => {e.preventDefault();setError('');setBusy(true);try {await onSave(data)} catch(err) {setError(err.message)} finally {setBusy(false)}}}>
       <button type="button" className="modal-close" onClick={onClose}><X/></button>
       <span className="eyebrow green">{isNew ? 'NUEVA HABITACIÓN' : 'EDITAR HABITACIÓN'}</span>
       <h2>{isNew ? 'Registrar habitación' : `Habitación ${data.number}`}</h2>
@@ -805,7 +836,7 @@ function RoomModal({room, isNew, onClose, onSave}) {
         <label>Capacidad<input type="number" min="1" value={data.capacity} onChange={e => set('capacity', Number(e.target.value))}/></label>
         <label>Precio por noche<input type="number" min="0" value={data.price} onChange={e => set('price', Number(e.target.value))}/></label>
         <label>Estado<select value={data.status} onChange={e => set('status', e.target.value)}>
-          <option value="AVAILABLE">Disponible</option><option value="OCCUPIED">Ocupada</option><option value="MAINTENANCE">Mantenimiento</option>
+          <option value="AVAILABLE">Disponible</option><option value="OCCUPIED">Ocupada</option><option value="RESERVED">Reservada</option><option value="MAINTENANCE">Mantenimiento</option><option value="OUT_OF_SERVICE">Fuera de servicio</option>
         </select></label>
         <label className="full">Servicios<input value={data.services} onChange={e => set('services', e.target.value)} placeholder="Wi-Fi · TV · Desayuno"/></label>
       </div>
@@ -813,7 +844,8 @@ function RoomModal({room, isNew, onClose, onSave}) {
         <label><input type="checkbox" checked={data.balcony} onChange={e => set('balcony', e.target.checked)}/>Tiene balcón</label>
         <label><input type="checkbox" checked={data.petFriendly} onChange={e => set('petFriendly', e.target.checked)}/>Admite mascotas</label>
       </div>
-      <button className="primary wide">{isNew ? 'Crear habitación' : 'Guardar cambios'}</button>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <button className="primary wide" disabled={busy}>{busy ? 'Guardando…' : isNew ? 'Crear habitación' : 'Guardar cambios'}</button>
     </form>
   </div>;
 }

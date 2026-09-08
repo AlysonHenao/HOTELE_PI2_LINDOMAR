@@ -2,6 +2,13 @@ package co.lindomar.web;
 
 import co.lindomar.domain.Domain.*;
 import co.lindomar.repository.*;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -20,27 +27,36 @@ public class HotelController {
  private final UserRepository users; private final RoomRepository rooms; private final ReservationRepository reservations;
  private final RequestRepository requests; private final TaskRepository tasks; private final FinanceRepository finance;
  private final ReminderRepository reminders; private final AuthSessionRepository sessions;
- public HotelController(UserRepository u,RoomRepository r,ReservationRepository rs,RequestRepository rq,TaskRepository t,FinanceRepository f,ReminderRepository rm,AuthSessionRepository s){users=u;rooms=r;reservations=rs;requests=rq;tasks=t;finance=f;reminders=rm;sessions=s;}
+ private final PasswordEncoder passwords;
+ public HotelController(UserRepository u,RoomRepository r,ReservationRepository rs,RequestRepository rq,TaskRepository t,FinanceRepository f,ReminderRepository rm,AuthSessionRepository s,PasswordEncoder passwords){users=u;rooms=r;reservations=rs;requests=rq;tasks=t;finance=f;reminders=rm;sessions=s;this.passwords=passwords;}
 
  public record LoginRequest(String email,String password){}
- public record RegisterRequest(String name,String email,String password,String phone){}
+ public record RegisterRequest(
+  @NotBlank(message="El nombre es obligatorio") @Size(max=255) String name,
+  @NotBlank(message="El correo es obligatorio") @Email(message="Ingrese un correo electrónico válido") @Size(max=255) String email,
+  @NotBlank(message="La contraseña es obligatoria") @Size(min=6,max=72,message="La contraseña debe tener entre 6 y 72 caracteres") String password,
+  @Size(max=255) String phone){
+  public RegisterRequest { if(name!=null)name=name.trim(); if(email!=null)email=email.trim().toLowerCase(Locale.ROOT); }
+ }
+ public record RoomStatusRequest(@NotNull(message="El estado es obligatorio") RoomStatus status){}
  public record PublicUser(Long id,String name,String email,Role role,String phone){}
  public record AuthResponse(PublicUser user,String token){}
  public record ReservationView(Long id,Long guestId,String guestName,Long roomId,String roomNumber,String roomType,LocalDate checkIn,LocalDate checkOut,int guests,ReservationStatus status,String notes,BigDecimal total){}
 
  @PostMapping("/auth/login") ResponseEntity<?> login(@RequestBody LoginRequest input){
-  return users.findByEmailIgnoreCase(input.email()).filter(u->Objects.equals(u.getPassword(),input.password()))
+  if(input.email()==null||input.password()==null||input.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>72)return ResponseEntity.status(401).body(Map.of("message","Correo o contraseña incorrectos"));
+  return users.findByEmailIgnoreCase(input.email().trim()).filter(u->passwords.matches(input.password(),u.getPassword()))
    .<ResponseEntity<?>>map(u->ResponseEntity.ok(authResponse(u)))
    .orElseGet(()->ResponseEntity.status(401).body(Map.of("message","Correo o contraseña incorrectos")));
  }
 
- /** HU-02: registro de nuevos huéspedes. Siempre crea cuentas con rol GUEST. */
- @PostMapping("/auth/register") ResponseEntity<?> register(@RequestBody RegisterRequest input){
-  if(input.name()==null||input.name().isBlank())return ResponseEntity.badRequest().body(Map.of("message","El nombre es obligatorio"));
-  if(input.email()==null||!input.email().contains("@"))return ResponseEntity.badRequest().body(Map.of("message","Ingrese un correo electrónico válido"));
-  if(input.password()==null||input.password().length()<6)return ResponseEntity.badRequest().body(Map.of("message","La contraseña debe tener al menos 6 caracteres"));
+ /** HU-01: registro de nuevos huéspedes. Siempre crea cuentas con rol GUEST. */
+ @PostMapping("/auth/register") ResponseEntity<?> register(@Valid @RequestBody RegisterRequest input){
+  if(input.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>72)return ResponseEntity.badRequest().body(Map.of("message","La contraseña no puede superar 72 bytes UTF-8"));
   if(users.findByEmailIgnoreCase(input.email()).isPresent())return ResponseEntity.status(409).body(Map.of("message","Ya existe una cuenta registrada con ese correo"));
-  var saved=users.save(new UserAccount(input.name().trim(),input.email().trim(),input.password(),Role.GUEST,input.phone()));
+  UserAccount saved;
+  try { saved=users.saveAndFlush(new UserAccount(input.name(),input.email(),passwords.encode(input.password()),Role.GUEST,input.phone())); }
+  catch(DataIntegrityViolationException ex){return ResponseEntity.status(409).body(Map.of("message","Ya existe una cuenta registrada con ese correo"));}
   return ResponseEntity.ok(authResponse(saved));
  }
  @GetMapping("/auth/me") PublicUser currentUser(@RequestHeader(value="Authorization",required=false)String authorization){return publicUser(requireUser(authorization,null));}
@@ -48,15 +64,38 @@ public class HotelController {
  @PostMapping("/auth/logout") ResponseEntity<Void> logout(@RequestHeader(value="Authorization",required=false)String authorization){tokenFrom(authorization).ifPresent(sessions::deleteByToken);return ResponseEntity.noContent().build();}
 
  @GetMapping("/users") List<PublicUser> allUsers(){return users.findAll().stream().map(u->new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone())).toList();}
- @PutMapping("/users/{id}") PublicUser updateUser(@PathVariable Long id,@RequestBody UserAccount data){var u=users.findById(id).orElseThrow(); if(data.getName()!=null)u.setName(data.getName());if(data.getPhone()!=null)u.setPhone(data.getPhone());if(data.getRole()!=null)u.setRole(data.getRole());users.save(u);return new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone());}
+ @PutMapping("/users/{id}") PublicUser updateUser(@RequestHeader(value="Authorization",required=false)String authorization,@PathVariable Long id,@RequestBody UserAccount data){requireUser(authorization,Role.ADMIN);var u=users.findById(id).orElseThrow(); if(data.getName()!=null)u.setName(data.getName());if(data.getPhone()!=null)u.setPhone(data.getPhone());if(data.getRole()!=null)u.setRole(data.getRole());users.save(u);return new PublicUser(u.getId(),u.getName(),u.getEmail(),u.getRole(),u.getPhone());}
 
  @GetMapping("/rooms") List<Room> getRooms(@RequestParam(required=false)String type,@RequestParam(required=false)Integer capacity,@RequestParam(required=false)BigDecimal maxPrice,@RequestParam(required=false)Boolean balcony,@RequestParam(required=false)Boolean petFriendly,@RequestParam(required=false)LocalDate checkIn,@RequestParam(required=false)LocalDate checkOut){
+  if(checkIn!=null||checkOut!=null)validateSearchDates(checkIn,checkOut);
   return rooms.findAll().stream().filter(r->type==null||type.isBlank()||r.getType().equalsIgnoreCase(type)).filter(r->capacity==null||r.getCapacity()>=capacity).filter(r->maxPrice==null||r.getPrice().compareTo(maxPrice)<=0).filter(r->balcony==null||!balcony||r.isBalcony()).filter(r->petFriendly==null||!petFriendly||r.isPetFriendly()).filter(r->r.getStatus()==RoomStatus.AVAILABLE).filter(r->checkIn==null||checkOut==null||!reservations.existsByRoomIdAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(r.getId(),ReservationStatus.CANCELLED,checkOut,checkIn)).toList();
  }
  @GetMapping("/rooms/all") List<Room> allRooms(){return rooms.findAll();}
- @PostMapping("/rooms") Room createRoom(@RequestBody Room room){if(room.getStatus()==null)room.setStatus(RoomStatus.AVAILABLE);return rooms.save(room);}
- @PutMapping("/rooms/{id}") Room updateRoom(@PathVariable Long id,@RequestBody Room data){data.setId(id);return rooms.save(data);}
- @DeleteMapping("/rooms/{id}") void deleteRoom(@PathVariable Long id){rooms.deleteById(id);}
+ @PostMapping("/rooms") Room createRoom(@RequestHeader(value="Authorization",required=false)String authorization,@RequestBody Room room){requireUser(authorization,Role.ADMIN);room.setId(null);if(room.getStatus()==null)room.setStatus(RoomStatus.AVAILABLE);validateRoom(room);return rooms.save(room);}
+ @Transactional
+ @PutMapping("/rooms/{id}") Room updateRoom(@RequestHeader(value="Authorization",required=false)String authorization,@PathVariable Long id,@RequestBody Room data){
+  requireUser(authorization,Role.ADMIN);
+  rooms.findByIdForUpdate(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Habitación no encontrada"));
+  validateRoom(data);data.setId(id);return rooms.save(data);
+ }
+ @Transactional
+ @PatchMapping("/rooms/{id}/status") Room updateRoomStatus(@RequestHeader(value="Authorization",required=false)String authorization,@PathVariable Long id,@Valid @RequestBody RoomStatusRequest data){
+  requireUser(authorization,Role.ADMIN);
+  var room=rooms.findByIdForUpdate(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Habitación no encontrada"));
+  room.setStatus(data.status());return rooms.save(room);
+ }
+ @DeleteMapping("/rooms/{id}") void deleteRoom(@RequestHeader(value="Authorization",required=false)String authorization,@PathVariable Long id){requireUser(authorization,Role.ADMIN);rooms.deleteById(id);}
+
+ private void validateSearchDates(LocalDate checkIn,LocalDate checkOut){
+  if(checkIn==null||checkOut==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Selecciona las fechas de llegada y salida");
+  if(checkIn.isBefore(LocalDate.now()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"La llegada no puede ser anterior a hoy");
+  if(!checkOut.isAfter(checkIn))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"La salida debe ser posterior a la llegada");
+ }
+ private void validateRoom(Room room){
+  if(room.getStatus()==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"El estado es obligatorio");
+  if(room.getNumber()==null||room.getNumber().isBlank()||room.getType()==null||room.getType().isBlank()||room.getFloor()<1||room.getCapacity()<1||room.getPrice()==null||room.getPrice().signum()<0)
+   throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Revisa el número, tipo, piso, capacidad y precio de la habitación");
+ }
 
  @GetMapping("/reservations") List<ReservationView> getReservations(@RequestParam(required=false)Long guestId){var list=guestId==null?reservations.findAll():reservations.findByGuestIdOrderByCheckInDesc(guestId);return list.stream().map(this::view).toList();}
  @GetMapping("/reservations/mine") List<ReservationView> myReservations(@RequestHeader(value="Authorization",required=false)String authorization){var guest=requireUser(authorization,Role.GUEST);return reservations.findByGuestIdOrderByCheckInDesc(guest.getId()).stream().map(this::view).toList();}
