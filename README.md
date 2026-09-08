@@ -2,15 +2,88 @@
 
 MVP de gestión hotelera con tres experiencias: huésped, empleado y administrador.
 
-## Ejecutar
+## Ejecutar con Docker
 
-Requisito: Docker Desktop encendido.
+Docker Compose levanta PostgreSQL, la API de Spring Boot y el frontend. No es
+necesario instalar Java, Maven, Node.js ni PostgreSQL en el equipo.
+
+### Requisitos
+
+1. Instalar [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+2. En Windows, comprobar que la virtualización esté habilitada en BIOS/UEFI y
+   que Docker Desktop use WSL 2.
+3. Abrir Docker Desktop y esperar hasta que indique que el motor está activo.
+
+Puede verificar la instalación desde PowerShell:
 
 ```powershell
-docker compose up --build
+docker --version
+docker compose version
+docker info
 ```
 
-Abrir http://localhost:3000
+`docker info` debe mostrar información del servidor, no solamente del cliente.
+
+### Paso a paso
+
+1. Cambiar a la rama del Sprint 1 y actualizarla:
+
+   ```powershell
+   git switch Sprint1/Julian
+   git pull --ff-only origin Sprint1/Julian
+   ```
+
+2. Desde la carpeta raíz del repositorio, construir e iniciar todo. El comando
+   espera automáticamente a que la base de datos, la API y el frontend estén
+   saludables:
+
+   ```powershell
+   docker compose up --build -d --wait
+   ```
+
+3. Confirmar que los tres contenedores aparezcan como `healthy`:
+
+   ```powershell
+   docker compose ps
+   ```
+
+4. Abrir la aplicación en http://localhost:3000.
+
+La API también queda disponible en http://localhost:8080. La base de datos se
+guarda en el volumen `lindomar_data`, por lo que conserva la información entre
+reinicios.
+
+### Comandos útiles
+
+Ver los registros de todos los servicios:
+
+```powershell
+docker compose logs -f
+```
+
+Detener la aplicación sin borrar los datos:
+
+```powershell
+docker compose down
+```
+
+Volver a iniciarla sin reconstruir las imágenes:
+
+```powershell
+docker compose up -d
+```
+
+Recrear todo desde cero, incluida la base de datos (borra los datos locales):
+
+```powershell
+docker compose down -v
+docker compose up --build -d
+```
+
+Si Docker muestra que no puede conectarse a
+`dockerDesktopLinuxEngine`, primero abra Docker Desktop. Si Docker Desktop
+informa que la virtualización no está disponible, habilite Intel VT-x o AMD-V
+en BIOS/UEFI y reinicie Windows.
 
 ## Cuentas de demostración
 
@@ -19,8 +92,6 @@ Abrir http://localhost:3000
 | Huésped | huesped@lindomar.co | demo123 |
 | Empleado | empleado@lindomar.co | demo123 |
 | Administrador | admin@lindomar.co | demo123 |
-
-Los datos quedan guardados en PostgreSQL mediante un volumen de Docker. Para detener el sistema use `docker compose down`.
 
 ## Alcance del prototipo
 

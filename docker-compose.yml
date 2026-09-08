@@ -1,6 +1,9 @@
+name: lindomar
+
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: lindomar
       POSTGRES_USER: lindomar
@@ -12,9 +15,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 10s
 
   backend:
     build: ./backend
+    restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/lindomar
       SPRING_DATASOURCE_USERNAME: lindomar
@@ -22,13 +27,27 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/rooms || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     ports:
       - "8080:8080"
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     ports:
       - "3000:80"
 
