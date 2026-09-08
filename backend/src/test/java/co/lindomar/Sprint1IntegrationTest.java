@@ -176,6 +176,85 @@ class Sprint1IntegrationTest {
             .andExpect(jsonPath("$[0].id").value(room.getId()));
     }
 
+    @Test
+    void roomSearchReturnsAllDetailsNeededBeforeBooking() throws Exception {
+        var room = room();
+        var result = search(20, 22);
+        JsonNode detail = null;
+        for (var item : result) if (item.get("id").asLong() == room.getId()) detail = item;
+        assertThat(detail).isNotNull();
+        assertThat(detail.get("number").asText()).isEqualTo("T-101");
+        assertThat(detail.get("type").asText()).isEqualTo("Suite");
+        assertThat(detail.get("capacity").asInt()).isEqualTo(2);
+        assertThat(detail.get("price").decimalValue()).isEqualByComparingTo("150000");
+        assertThat(detail.get("balcony").asBoolean()).isTrue();
+        assertThat(detail.get("petFriendly").asBoolean()).isTrue();
+        assertThat(detail.get("services").asText()).isEqualTo("Wi-Fi");
+        assertThat(detail.get("status").asText()).isEqualTo("AVAILABLE");
+    }
+
+    @Test
+    void adminCanCreateAValidatedRoomAndSeeItInInventory() throws Exception {
+        var admin = "Bearer " + token("admin@lindomar.co");
+        var payload = Map.of("number", "  T-NEW  ", "floor", 4, "type", " Deluxe ", "capacity", 3,
+            "price", 275000, "balcony", true, "petFriendly", false, "services", " Wi-Fi · TV ",
+            "status", "AVAILABLE");
+        var created = json.readTree(mvc.perform(post("/api/rooms").header("Authorization", admin)
+            .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(payload)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.number").value("T-NEW"))
+            .andExpect(jsonPath("$.type").value("Deluxe"))
+            .andExpect(jsonPath("$.services").value("Wi-Fi · TV"))
+            .andReturn().getResponse().getContentAsString());
+        mvc.perform(get("/api/rooms/all")).andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id == " + created.get("id").asLong() + ")].number").value("T-NEW"));
+        mvc.perform(post("/api/rooms").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"number\":\"\",\"floor\":0,\"type\":\"\",\"capacity\":0,\"price\":-1}"))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    void adminCanEditPermittedRoomInformationAndInventoryReflectsIt() throws Exception {
+        var room = room();
+        var admin = "Bearer " + token("admin@lindomar.co");
+        var payload = Map.of("number", "T-EDITED", "floor", 5, "type", "Familiar", "capacity", 4,
+            "price", 325000, "balcony", false, "petFriendly", true, "services", "Wi-Fi · Cocina",
+            "status", "MAINTENANCE");
+        mvc.perform(put("/api/rooms/{id}", room.getId()).header("Authorization", admin)
+            .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(payload)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(room.getId()))
+            .andExpect(jsonPath("$.number").value("T-EDITED")).andExpect(jsonPath("$.floor").value(5))
+            .andExpect(jsonPath("$.capacity").value(4)).andExpect(jsonPath("$.status").value("MAINTENANCE"));
+        var stored = rooms.findById(room.getId()).orElseThrow();
+        assertThat(stored.getNumber()).isEqualTo("T-EDITED");
+        assertThat(stored.getType()).isEqualTo("Familiar");
+        assertThat(stored.getServices()).isEqualTo("Wi-Fi · Cocina");
+        assertThat(stored.isPetFriendly()).isTrue();
+    }
+
+    @Test
+    void adminReservationListRequiresAdminAndContainsCompleteReservationData() throws Exception {
+        var room = room();
+        var reservation = reserve(room, ReservationStatus.CONFIRMED);
+        mvc.perform(get("/api/reservations")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/reservations").header("Authorization", "Bearer " + token("huesped@lindomar.co")))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/reservations").header("Authorization", "Bearer " + token("empleado@lindomar.co")))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/reservations").header("Authorization", "Bearer " + token("admin@lindomar.co")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == " + reservation.getId() + ")].guestName").value("Mariana Torres"))
+            .andExpect(jsonPath("$[?(@.id == " + reservation.getId() + ")].roomNumber").value("T-101"))
+            .andExpect(jsonPath("$[?(@.id == " + reservation.getId() + ")].status").value("CONFIRMED"));
+    }
+
+    @Test
+    void guestCannotReadAdministratorEndpoints() throws Exception {
+        var auth = "Bearer " + token("huesped@lindomar.co");
+        for (var path : new String[]{"/api/users", "/api/reservations", "/api/finance", "/api/reminders", "/api/dashboard", "/api/tasks"}) {
+            mvc.perform(get(path).header("Authorization", auth)).andExpect(status().isForbidden());
+        }
+        mvc.perform(get("/api/requests").header("Authorization", auth)).andExpect(status().isForbidden());
+    }
+
     @ParameterizedTest
     @EnumSource(RoomStatus.class)
     void adminCanPersistEveryStatusAndUnavailableRoomsCannotBeBooked(RoomStatus state) throws Exception {

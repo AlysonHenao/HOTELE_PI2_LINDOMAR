@@ -44,7 +44,7 @@ Este prototipo usa sesiones opacas y contraseñas protegidas con BCrypt. La auto
 - **HU-01:** registro validado, correo normalizado y único, contraseñas BCrypt y cuentas siempre de huésped. Al iniciar se convierten las contraseñas en texto plano de bases del prototipo; las que ya tienen BCrypt se conservan.
 - **HU-04:** la búsqueda rechaza fechas incompletas, pasadas o con salida igual/anterior a la llegada. Conserva el catálogo sin fechas para los consumidores existentes. Los periodos se interpretan como `[llegada, salida)`: otra estadía puede empezar el día de salida. Las reservas canceladas no bloquean disponibilidad.
 - **HU-18:** estados `AVAILABLE`, `OCCUPIED`, `RESERVED`, `MAINTENANCE` y `OUT_OF_SERVICE`. El administrador puede cambiarlos desde el inventario o la edición. `PATCH /api/rooms/{id}/status` acepta `{"status":"RESERVED"}` y conserva las demás propiedades. Solo `AVAILABLE` aparece como reservable. `RESERVED` es un bloqueo operativo manual; las reservas con fechas siguen controlando sus propios cruces y no bloquean periodos futuros sin solapamiento.
-- El inicio actualiza la restricción de estados de PostgreSQL de volúmenes existentes, sin borrar sus datos. Los cambios de habitaciones y roles requieren una sesión de administrador.
+- El inicio actualiza la restricción de estados de PostgreSQL de volúmenes existentes, sin borrar sus datos. Habitaciones, usuarios, reservas administrativas, finanzas, recordatorios y dashboard requieren una sesión de administrador. Los huéspedes solo consultan/cancelan sus propias reservas y crean/consultan sus propias solicitudes; los empleados solo acceden a sus tareas.
 
 Pruebas: `cd backend && mvn verify`. Compilación frontend: `cd frontend && npm ci && npm run build`.
 

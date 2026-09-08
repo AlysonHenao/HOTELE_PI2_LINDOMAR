@@ -344,11 +344,11 @@ function RoomCard({room, onSelect}) {
       <div className="tags">
         {room.balcony && <span>Balcón</span>}
         {room.petFriendly && <span>Pet-friendly</span>}
-        {room.services.split(' · ').slice(0, 2).map(s => <span key={s}>{s}</span>)}
+        {(room.services || '').split(' · ').filter(Boolean).map(s => <span key={s}>{s}</span>)}
       </div>
       <div className="room-foot">
         <span><strong>{money(room.price)}</strong><small>por noche</small></span>
-        <button className="primary" onClick={() => onSelect(room)}>Reservar</button>
+        <button className="primary" onClick={() => onSelect(room)}>Ver y reservar</button>
       </div>
     </div>
   </article>;
@@ -396,6 +396,11 @@ function ReserveModal({room, user, dates, onClose, onDone}) {
       <span className="eyebrow green">CONFIRMAR RESERVA</span>
       <h2>Habitación {room.number}</h2>
       <p className="muted">{room.type} · hasta {room.capacity} huéspedes</p>
+      <div className="tags" aria-label="Características y servicios">
+        {room.balcony && <span>Balcón</span>}
+        {room.petFriendly && <span>Pet-friendly</span>}
+        {(room.services || '').split(' · ').filter(Boolean).map(service => <span key={service}>{service}</span>)}
+      </div>
       <div className="form-grid">
         <label>Llegada<input type="date" min={today()} value={form.checkIn} onChange={e => setForm({...form, checkIn: e.target.value})}/></label>
         <label>Salida<input type="date" min={form.checkIn} value={form.checkOut} onChange={e => setForm({...form, checkOut: e.target.value})}/></label>
