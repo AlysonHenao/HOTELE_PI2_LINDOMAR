@@ -5,19 +5,20 @@ import co.lindomar.repository.*;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
 @Configuration
 public class SeedData {
- @Bean CommandLineRunner seed(UserRepository users, RoomRepository rooms, TaskRepository tasks, FinanceRepository finance, ReminderRepository reminders){
+ @Bean CommandLineRunner seed(UserRepository users, RoomRepository rooms, TaskRepository tasks, FinanceRepository finance, ReminderRepository reminders, PasswordEncoder encoder){
   return args -> {
    if(users.count()>0) return;
-   var guest=users.save(new UserAccount("Mariana Torres","huesped@lindomar.co","demo123",Role.GUEST,"300 555 0142"));
-   var employee=users.save(new UserAccount("Santiago Ruiz","empleado@lindomar.co","demo123",Role.EMPLOYEE,"301 555 0188"));
-   users.save(new UserAccount("Laura Méndez","admin@lindomar.co","demo123",Role.ADMIN,"315 555 0101"));
-   users.save(new UserAccount("Ana Gómez","ana@lindomar.co","demo123",Role.EMPLOYEE,"312 555 0165"));
+   var guest=users.save(new UserAccount("Mariana Torres","huesped@lindomar.co",encoder.encode("demo123"),Role.GUEST,"300 555 0142"));
+   var employee=users.save(new UserAccount("Santiago Ruiz","empleado@lindomar.co",encoder.encode("demo123"),Role.EMPLOYEE,"301 555 0188"));
+   users.save(new UserAccount("Laura Méndez","admin@lindomar.co",encoder.encode("demo123"),Role.ADMIN,"315 555 0101"));
+   users.save(new UserAccount("Ana Gómez","ana@lindomar.co",encoder.encode("demo123"),Role.EMPLOYEE,"312 555 0165"));
    rooms.saveAll(List.of(
     new Room("101",1,"Estándar",2,new BigDecimal("185000"),false,false,"Wi-Fi · TV · Desayuno",RoomStatus.AVAILABLE),
     new Room("102",1,"Estándar",2,new BigDecimal("195000"),true,true,"Wi-Fi · TV · Desayuno",RoomStatus.AVAILABLE),

@@ -85,14 +85,17 @@ class HotelStoriesIntegrationTest {
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(mine.size()).isEqualTo(1);
 
-        var adminReservations = json.readTree(mvc.perform(get("/api/reservations"))
+        var adminToken = login("admin@lindomar.co").get("token").asText();
+        var adminReservations = json.readTree(mvc.perform(get("/api/reservations")
+                .header("Authorization", "Bearer " + adminToken))
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(adminReservations.get(0).get("guestName").asText()).isEqualTo("Mariana Torres");
 
         var employee = login("empleado@lindomar.co");
         var employeeId = employee.path("user").path("id").asLong();
         var employeeToken = employee.get("token").asText();
-        var taskList = json.readTree(mvc.perform(get("/api/tasks").param("employeeId", String.valueOf(employeeId)))
+        var taskList = json.readTree(mvc.perform(get("/api/tasks").param("employeeId", String.valueOf(employeeId))
+                .header("Authorization", "Bearer " + employeeToken))
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         var taskId = taskList.get(0).get("id").asLong();
         var photo = new MockMultipartFile("photo", "evidencia.png", "image/png", new byte[]{1,2,3,4,5});
@@ -104,7 +107,6 @@ class HotelStoriesIntegrationTest {
         assertThat(completed.get("hasCompletionPhoto").asBoolean()).isTrue();
         assertThat(completed.get("completionPhotoName").asText()).isEqualTo("evidencia.png");
 
-        var adminToken = login("admin@lindomar.co").get("token").asText();
         var photoResponse = mvc.perform(get("/api/tasks/{id}/photo", taskId)
                 .header("Authorization", "Bearer " + adminToken))
             .andExpect(status().isOk()).andReturn().getResponse();
