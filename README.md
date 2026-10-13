@@ -29,8 +29,8 @@ docker info
 1. Cambiar a la rama del Sprint 2 y actualizarla:
 
    ```powershell
-   git switch Sprint2
-   git pull --ff-only origin Sprint2
+   git switch Sprint2/Julian
+   git pull --ff-only origin Sprint2/Julian
    ```
 
 2. Desde la carpeta raíz del repositorio, construir e iniciar todo. El comando

@@ -1,6 +1,6 @@
 # Sprint 2 — Julián Jiménez
 
-Implementación sobre `main` (`215eb386`), en la rama `Sprint2`.
+Implementación sobre `main` (`215eb386`), en la rama local `Sprint2` y remota `Sprint2/Julian`. GitHub ya contiene `Sprint2/Jose`, por lo que Git no permite crear también una rama remota llamada `Sprint2`.
 
 ## Historias y reglas
 
