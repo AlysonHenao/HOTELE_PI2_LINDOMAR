@@ -30,7 +30,7 @@ public final class Domain {
     }
     public enum ReminderStatus { PENDING, DONE }
 
-    @Entity @Table(name = "users")
+    @Entity(name = "UserAccount") @Table(name = "users")
     public static class UserAccount {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
         private String name;
@@ -60,6 +60,7 @@ public final class Domain {
         private boolean balcony;
         private boolean petFriendly;
         private String services;
+        @Column(length=2048) private String imageUrl;
         @Enumerated(EnumType.STRING) private RoomStatus status;
         public Room() {}
         public Room(String number,int floor,String type,int capacity,BigDecimal price,boolean balcony,boolean petFriendly,String services,RoomStatus status){this.number=number;this.floor=floor;this.type=type;this.capacity=capacity;this.price=price;this.balcony=balcony;this.petFriendly=petFriendly;this.services=services;this.status=status;}
@@ -72,10 +73,11 @@ public final class Domain {
         public boolean isBalcony(){return balcony;} public void setBalcony(boolean v){balcony=v;}
         public boolean isPetFriendly(){return petFriendly;} public void setPetFriendly(boolean v){petFriendly=v;}
         public String getServices(){return services;} public void setServices(String v){services=v;}
+        public String getImageUrl(){return imageUrl;} public void setImageUrl(String v){imageUrl=v;}
         public RoomStatus getStatus(){return status;} public void setStatus(RoomStatus v){status=v;}
     }
 
-    @Entity @Table(name = "reservations")
+    @Entity(name = "Reservation") @Table(name = "reservations")
     public static class Reservation {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
         private Long guestId;

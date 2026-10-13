@@ -22,3 +22,9 @@ spring:
 server:
   port: 8080
 
+hotel:
+  time-zone: ${HOTEL_TIME_ZONE:America/Bogota}
+  check-in-time: ${HOTEL_CHECK_IN_TIME:15:00}
+  cancellation:
+    advance-hours: ${HOTEL_CANCELLATION_ADVANCE_HOURS:2}
+

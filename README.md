@@ -26,11 +26,11 @@ docker info
 
 ### Paso a paso
 
-1. Cambiar a la rama del Sprint 1 y actualizarla:
+1. Cambiar a la rama del Sprint 2 y actualizarla:
 
    ```powershell
-   git switch Sprint1/Julian
-   git pull --ff-only origin Sprint1/Julian
+   git switch Sprint2
+   git pull --ff-only origin Sprint2
    ```
 
 2. Desde la carpeta raíz del repositorio, construir e iniciar todo. El comando
@@ -118,4 +118,12 @@ Este prototipo usa sesiones opacas y contraseñas protegidas con BCrypt. La auto
 - El inicio actualiza la restricción de estados de PostgreSQL de volúmenes existentes, sin borrar sus datos. Habitaciones, usuarios, reservas administrativas, finanzas, recordatorios y dashboard requieren una sesión de administrador. Los huéspedes solo consultan/cancelan sus propias reservas y crean/consultan sus propias solicitudes; los empleados solo acceden a sus tareas.
 
 Pruebas: `cd backend && mvn verify`. Compilación frontend: `cd frontend && npm ci && npm run build`.
+
+### Sprint 2 — Julián Jiménez: HU-06, HU-11 y HU-24
+
+- **HU-06:** pantalla de detalles antes de reservar, con servicios, capacidad, piso, precio por noche, total y disponibilidad consultada para las fechas elegidas. Fotografía configurable desde administración y aviso cuando no está disponible.
+- **HU-11:** cancelación hasta antes del límite de **2 horas previas al check-in de las 15:00**, en `America/Bogota` (antes de las 13:00 del día de llegada). Solo reservas confirmadas, por su huésped o un administrador. Reembolso completo del importe registrado, una sola vez, conservando el historial. Las fechas se liberan sin quitar bloqueos operativos ni la ocupación de otra estadía.
+- **HU-24:** asignación de los roles huésped, empleado y administrador, con sus permisos visibles. Solo un administrador puede asignarlos; no puede cambiar su propio rol. Un cambio revoca las sesiones anteriores del usuario y los permisos se validan en el backend.
+
+Consulta [reglas, endpoints, pruebas y guion de demo del Sprint 2](docs/SPRINT2.md).
 
