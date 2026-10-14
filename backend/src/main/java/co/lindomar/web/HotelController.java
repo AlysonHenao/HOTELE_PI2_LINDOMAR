@@ -123,7 +123,9 @@ public class HotelController {
  @PatchMapping("/rooms/{id}/status") Room updateRoomStatus(@RequestHeader(value="Authorization",required=false)String authorization,@PathVariable Long id,@Valid @RequestBody RoomStatusRequest data){
   requireUser(authorization,Role.ADMIN);
   var room=rooms.findByIdForUpdate(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Habitación no encontrada"));
-  room.setStatus(data.status());return rooms.save(room);
+  var previous=room.getStatus();room.setStatus(data.status());var saved=rooms.save(room);
+  if(previous==RoomStatus.OCCUPIED&&data.status()==RoomStatus.AVAILABLE)assignAutomaticTask("ROOM_VACATED_MANUAL:"+room.getId()+":"+UUID.randomUUID(),"Acondicionar habitación "+room.getNumber(),"La habitación quedó desocupada. Realizar limpieza, inspección y reposición.",LocalDate.now(clock),"Alta");
+  return saved;
  }
  @Transactional
  @DeleteMapping("/rooms/{id}") void deleteRoom(@RequestHeader(value="Authorization",required=false)String authorization,@PathVariable Long id){
@@ -171,6 +173,7 @@ public class HotelController {
   var saved=view(reservations.save(r));
   // HU-14: al confirmarse la reserva el ingreso se suma automáticamente al balance del hotel.
   finance.save(new FinanceEntry(EntryType.INCOME,"Reserva #"+saved.id()+" · Habitación "+saved.roomNumber(),saved.total(),LocalDate.now(clock)));
+  assignAutomaticTask("RESERVATION_CREATED:"+saved.id(),"Preparar habitación "+saved.roomNumber(),"Preparar la habitación para la reserva #"+saved.id()+" con llegada el "+saved.checkIn()+".",saved.checkIn(),"Media");
   return ResponseEntity.ok(saved);
  }
  @Transactional
@@ -218,7 +221,17 @@ public class HotelController {
   if(room.getStatus()==RoomStatus.OCCUPIED&&!today.isBefore(r.getCheckIn())&&(r.getStatus()==ReservationStatus.CHECKED_IN||today.isBefore(r.getCheckOut()))
    &&!reservations.existsByRoomIdAndIdNotAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(room.getId(),r.getId(),ReservationStatus.CANCELLED,today.plusDays(1),today)){
    room.setStatus(RoomStatus.AVAILABLE);rooms.save(room);
+   assignAutomaticTask("ROOM_VACATED:"+r.getId(),"Acondicionar habitación "+room.getNumber(),"La habitación quedó desocupada tras la reserva #"+r.getId()+". Realizar limpieza, inspección y reposición.",today,"Alta");
   }
+ }
+
+ private void assignAutomaticTask(String eventKey,String title,String description,LocalDate dueDate,String priority){
+  if(tasks.existsByEventKey(eventKey))return;
+  var employee=users.findByRoleOrderByIdAsc(Role.EMPLOYEE).stream()
+   .min(Comparator.comparingLong((UserAccount user)->tasks.countByEmployeeIdAndStatusNot(user.getId(),TaskStatus.DONE)).thenComparing(UserAccount::getId))
+   .orElseThrow(()->new ResponseStatusException(HttpStatus.CONFLICT,"No hay empleados disponibles para asignar la tarea automática"));
+  var task=new StaffTask(employee.getId(),title,description,TaskStatus.PENDING,dueDate,priority);
+  task.setEventKey(eventKey);tasks.save(task);
  }
 
  @GetMapping("/requests") List<ServiceRequest> getRequests(@RequestHeader(value="Authorization",required=false)String authorization,@RequestParam(required=false)Long guestId){var actor=requireUser(authorization,null);if(actor.getRole()==Role.GUEST){if(guestId==null||!Objects.equals(guestId,actor.getId()))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Solo puedes consultar tus solicitudes");return requests.findByGuestIdOrderByCreatedAtDesc(actor.getId());}return guestId==null?requests.findAll():requests.findByGuestIdOrderByCreatedAtDesc(guestId);}

@@ -128,6 +128,7 @@ public final class Domain {
         @Enumerated(EnumType.STRING) private TaskStatus status;
         private LocalDate dueDate;
         private String priority;
+        @JsonIgnore @Column(unique=true,length=160) private String eventKey;
         @JsonIgnore @Column(columnDefinition="bytea") private byte[] completionPhoto;
         private String completionPhotoName;
         private String completionPhotoContentType;
@@ -141,6 +142,7 @@ public final class Domain {
         public TaskStatus getStatus(){return status;} public void setStatus(TaskStatus v){status=v;}
         public LocalDate getDueDate(){return dueDate;} public void setDueDate(LocalDate v){dueDate=v;}
         public String getPriority(){return priority;} public void setPriority(String v){priority=v;}
+        public String getEventKey(){return eventKey;} public void setEventKey(String v){eventKey=v;}
         public byte[] getCompletionPhoto(){return completionPhoto;} public void setCompletionPhoto(byte[] v){completionPhoto=v;}
         public String getCompletionPhotoName(){return completionPhotoName;} public void setCompletionPhotoName(String v){completionPhotoName=v;}
         public String getCompletionPhotoContentType(){return completionPhotoContentType;} public void setCompletionPhotoContentType(String v){completionPhotoContentType=v;}

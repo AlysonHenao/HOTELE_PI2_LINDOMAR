@@ -49,6 +49,7 @@ class Sprint2IntegrationTest {
     @Autowired RoomRepository rooms;
     @Autowired ReservationRepository reservations;
     @Autowired FinanceRepository finance;
+    @Autowired TaskRepository tasks;
     @Autowired AuthSessionRepository sessions;
     @Autowired Clock clock;
 
@@ -201,6 +202,45 @@ class Sprint2IntegrationTest {
             .andExpect(status().isOk()).andExpect(jsonPath("$.cancellable").value(false));
         assertThat(rooms.findById(room.getId()).orElseThrow().getStatus()).isEqualTo(RoomStatus.AVAILABLE);
         assertThat(refunds(r.getId())).isZero();
+    }
+
+    @Test void reservationAutomaticallyAssignsPreparationTaskToLeastBusyEmployee() throws Exception {
+        var available = users.findByEmailIgnoreCase("ana@lindomar.co").orElseThrow();
+        var room = room();
+        var created = json.readTree(mvc.perform(post("/api/reservations").header("Authorization", auth("huesped@lindomar.co"))
+            .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(Map.of("roomId", room.getId(), "checkIn", "2030-06-15", "checkOut", "2030-06-17", "guests", 1))))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+        var automatic = tasks.findAll().stream().filter(t -> ("RESERVATION_CREATED:" + created.path("id").asLong()).equals(t.getEventKey())).toList();
+        assertThat(automatic).singleElement().satisfies(task -> {
+            assertThat(task.getEmployeeId()).isEqualTo(available.getId());
+            assertThat(task.getTitle()).isEqualTo("Preparar habitación " + room.getNumber());
+            assertThat(task.getDueDate()).isEqualTo(LocalDate.of(2030, 6, 15));
+            assertThat(task.getStatus()).isEqualTo(TaskStatus.PENDING);
+        });
+        long before = tasks.count();
+        mvc.perform(post("/api/reservations").header("Authorization", auth("huesped@lindomar.co"))
+            .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(Map.of("roomId", room.getId(), "checkIn", "2030-06-16", "checkOut", "2030-06-18", "guests", 1))))
+            .andExpect(status().isConflict());
+        assertThat(tasks.count()).isEqualTo(before);
+    }
+
+    @Test void vacatingRoomAutomaticallyAssignsOneHousekeepingTask() throws Exception {
+        var room = room(); var r = reservation(room, -2, ReservationStatus.CHECKED_IN);
+        room.setStatus(RoomStatus.OCCUPIED); rooms.saveAndFlush(room);
+        var admin = auth("admin@lindomar.co");
+        mvc.perform(put("/api/reservations/{id}", r.getId()).header("Authorization", admin)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"COMPLETED\"}"))
+            .andExpect(status().isOk());
+        assertThat(tasks.findAll().stream().filter(t -> ("ROOM_VACATED:" + r.getId()).equals(t.getEventKey())).toList())
+            .singleElement().satisfies(task -> {
+                assertThat(task.getTitle()).isEqualTo("Acondicionar habitación " + room.getNumber());
+                assertThat(task.getDueDate()).isEqualTo(LocalDate.now(clock));
+                assertThat(task.getPriority()).isEqualTo("Alta");
+            });
+        mvc.perform(put("/api/reservations/{id}", r.getId()).header("Authorization", admin)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"COMPLETED\"}"))
+            .andExpect(status().isConflict());
+        assertThat(tasks.findAll().stream().filter(t -> ("ROOM_VACATED:" + r.getId()).equals(t.getEventKey())).count()).isEqualTo(1);
     }
 
     @Test void roomDeletionCannotOrphanAReservationAndBreakItsCancellation() throws Exception {

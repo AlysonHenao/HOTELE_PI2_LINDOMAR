@@ -58,6 +58,13 @@ El registro público siempre crea huéspedes. El backend verifica sesión, venci
 
 Al cambiar un rol se revocan **todas** las sesiones del usuario afectado; debe ingresar nuevamente. El frontend comprueba la sesión al recuperar el foco y cada 30 segundos, y vuelve al acceso al recibir un 401. Las peticiones posteriores ya se rechazan en el servidor aunque el navegador conserve una pantalla abierta.
 
+### Asignación automática de tareas operativas
+
+- Al confirmar una reserva se crea una tarea **Preparar habitación** con vencimiento en la fecha de llegada.
+- Cuando una habitación pasa realmente de `OCCUPIED` a `AVAILABLE`, por finalización/cancelación de la estadía o por cambio administrativo, se crea una tarea prioritaria **Acondicionar habitación** para limpieza, inspección y reposición.
+- La tarea se asigna al empleado con menos tareas abiertas; los empates se resuelven por el identificador más antiguo. Si no hay empleados, la operación se rechaza y la transacción no deja una reserva o cambio de estado parcial.
+- Cada evento de reserva o salida conserva una clave única interna para que reintentos no creen tareas duplicadas.
+
 ## Endpoints
 
 | Método y ruta | Resultado |
@@ -88,7 +95,7 @@ docker run --rm -e TZ=America/Bogota -v "${PWD}/backend:/app" -v maven-sprint2-c
 docker run --rm -v "${PWD}/frontend:/app" -w /app node:22-alpine sh -c 'npm ci && npm run build'
 ```
 
-`Sprint2IntegrationTest` cubre detalles y totales, estados operativos, disponibilidad, fechas inválidas, cancelación y nueva reserva de las mismas fechas, liberación el día de llegada, preservación de bloqueos/ocupación, historial, importe original, reembolso único bajo concurrencia, propietario/rol/sesión, cancelación por ambas rutas, estados terminales, prevención de sobreescritura por ID, checkout, protección del historial al eliminar habitaciones, asignación/revocación de roles y acceso directo a rutas administrativas. `CancellationPolicyTest` prueba el segundo anterior al límite, el límite exacto y momentos posteriores con reloj fijo en Colombia. Se ejecutan también las pruebas de los Sprints anteriores.
+`Sprint2IntegrationTest` cubre detalles y totales, estados operativos, disponibilidad, fechas inválidas, cancelación y nueva reserva de las mismas fechas, liberación el día de llegada, preservación de bloqueos/ocupación, historial, importe original, reembolso único bajo concurrencia, propietario/rol/sesión, cancelación por ambas rutas, estados terminales, prevención de sobreescritura por ID, checkout, protección del historial al eliminar habitaciones, asignación/revocación de roles, acceso directo a rutas administrativas y tareas automáticas de preparación/limpieza sin duplicados. `CancellationPolicyTest` prueba el segundo anterior al límite, el límite exacto y momentos posteriores con reloj fijo en Colombia. Se ejecutan también las pruebas de los Sprints anteriores.
 
 ## Demo
 
