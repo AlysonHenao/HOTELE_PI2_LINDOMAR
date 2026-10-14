@@ -1,8 +1,9 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import logoUrl from '/logo.svg';
 import {
   BedDouble, Bell, BellRing, CalendarClock, CalendarDays, CheckCircle2, CircleDollarSign,
-  Camera, ClipboardCheck, Clock3, ConciergeBell, DoorOpen, Eye, LayoutDashboard, LogOut, Map, Menu,
+  Camera, ClipboardCheck, Clock3, ConciergeBell, DoorOpen, Eye, Flower2, LayoutDashboard, LogOut, Map, MapPin, Menu,
   MessageCircle, Moon, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Sun, Trash2,
   TrendingDown, TrendingUp, UserPlus, Users, WalletCards, Waves, Wifi, X
 } from 'lucide-react';
@@ -37,6 +38,10 @@ const future = (days = 1) => {const d = new Date(); d.setDate(d.getDate() + days
 const initials = name => name.split(' ').map(x => x[0]).slice(0, 2).join('');
 /** Días restantes hasta una fecha; negativo si ya venció. */
 const daysUntil = d => Math.ceil((new Date(`${d}T12:00:00`) - new Date()) / 86400000);
+
+function Logo({className = '', light = false}) {
+  return <img src={logoUrl} alt="Hotel Lindomar" className={className} style={{filter: light ? 'brightness(0) invert(1)' : 'none'}}/>;
+}
 
 /* ---------- Tema claro / oscuro ---------- */
 const useTheme = () => {
@@ -86,34 +91,51 @@ function Login({onLogin}) {
   const demos = [['Huésped', 'huesped@lindomar.co'], ['Empleado', 'empleado@lindomar.co'], ['Administrador', 'admin@lindomar.co']];
 
   return <div className="login-page">
-    <section className="login-story">
-      <div className="brand light"><span className="brand-mark">L</span><span>LINDOMAR<small>HOTEL &amp; DESCANSO</small></span></div>
-      <div className="story-copy">
-        <span className="eyebrow">FRENTE AL MAR</span>
-        <h1>Tu descanso,<br/><em>sin complicaciones</em></h1>
-        <p>Reserva tu habitación, pide lo que necesites desde tu cuarto y resuelve tus dudas al instante. Todo desde un mismo lugar.</p>
-        <div className="feature-row">
-          <span><Waves/>Vista al mar</span>
-          <span><Wifi/>Wi-Fi en todo el hotel</span>
-          <span><ConciergeBell/>Atención inmediata</span>
+    <section className="login-hero" aria-hidden="false">
+      <div className="hero-top">
+        <div className="brand light"><Logo light/><span>LINDOMAR<small>HOTEL &amp; DESCANSO</small></span></div>
+        <span className="hero-tag"><MapPin size={14}/>Sincelejo, Colombia</span>
+      </div>
+
+      <div className="hero-content">
+        <span className="eyebrow">VERANO TODO EL AÑO</span>
+        <h1>Tu escapada<br/><em>caribeña</em> empieza aquí</h1>
+        <p>Reserva tu habitación, pide lo que necesites a la puerta y deja que el ritmo del Caribe suavice cada momento de tu estadía.</p>
+        <div className="hero-badges">
+          <span><Waves/>Frente al agua</span>
+          <span><Wifi/>Wi-Fi gratis</span>
+          <span><ConciergeBell/>Atención 24h</span>
           <span><Star/>Desayuno incluido</span>
         </div>
       </div>
+
+      <div className="hero-bottom">
+        <span>© {new Date().getFullYear()} Hotel Lindomar</span>
+        <span>Diseñado con alma sincelejana</span>
+      </div>
+
+      {/* Burbujas decorativas */}
+      <span className="bubble" style={{width: 18, height: 18, left: '12%', top: '22%'}}/>
+      <span className="bubble" style={{width: 26, height: 26, left: '28%', top: '68%', animationDelay: '-2s'}}/>
+      <span className="bubble" style={{width: 14, height: 14, left: '54%', top: '18%', animationDelay: '-4s'}}/>
+      <span className="bubble" style={{width: 22, height: 22, left: '72%', top: '75%', animationDelay: '-1s'}}/>
+      <span className="bubble" style={{width: 16, height: 16, left: '86%', top: '40%', animationDelay: '-3s'}}/>
     </section>
 
     <section className="login-panel">
       <form className="login-card" onSubmit={submit}>
-        <div className="brand mobile-brand"><span className="brand-mark">L</span><span>LINDOMAR<small>HOTEL &amp; DESCANSO</small></span></div>
-        <span className="eyebrow green">{mode === 'login' ? 'BIENVENIDO DE NUEVO' : 'CREAR CUENTA'}</span>
-        <h1>{mode === 'login' ? 'Inicio de sesión' : 'Regístrate'}</h1>
-        <p className="muted">{mode === 'login' ? 'Ingresa las credenciales de tu cuenta.' : 'Crea tu cuenta de huésped en menos de un minuto.'}</p>
+        <div className="brand mobile-brand"><Logo/><span>LINDOMAR<small>HOTEL &amp; DESCANSO</small></span></div>
+        <div className="brand" style={{justifyContent: 'center', marginBottom: 28}}><Logo/><span>LINDOMAR</span></div>
+        <span className="eyebrow green">{mode === 'login' ? 'BIENVENIDO DE NUEVO' : 'CREA TU CUENTA'}</span>
+        <h1 style={{textAlign: 'center'}}>{mode === 'login' ? 'Inicia sesión' : 'Únete al viaje'}</h1>
+        <p className="muted" style={{textAlign: 'center'}}>{mode === 'login' ? 'Ingresa tus credenciales para continuar.' : 'Crea tu cuenta de huésped y empieza a disfrutar.'}</p>
 
         {mode === 'login' ? <>
-          <label>Correo electrónico<input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required/></label>
-          <label>Contraseña<input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required/></label>
+          <label>Correo electrónico<input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="hola@ejemplo.com" required/></label>
+          <label>Contraseña<input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} placeholder="••••••••" required/></label>
         </> : <>
           <label>Nombre completo<input value={signup.name} onChange={e => setSignup({...signup, name: e.target.value})} placeholder="Ej: María Restrepo" required/></label>
-          <label>Correo electrónico<input type="email" value={signup.email} onChange={e => setSignup({...signup, email: e.target.value})} placeholder="tucorreo@ejemplo.com" required/></label>
+          <label>Correo electrónico<input type="email" value={signup.email} onChange={e => setSignup({...signup, email: e.target.value})} placeholder="hola@ejemplo.com" required/></label>
           <label>Teléfono<input value={signup.phone} onChange={e => setSignup({...signup, phone: e.target.value})} placeholder="300 000 0000"/></label>
           <label>Contraseña<input type="password" value={signup.password} onChange={e => setSignup({...signup, password: e.target.value})} placeholder="Mínimo 6 caracteres" required/></label>
         </>}
@@ -124,18 +146,21 @@ function Login({onLogin}) {
         </button>
 
         <p className="auth-switch">
-          {mode === 'login' ? '¿Aún no tienes cuenta?' : '¿Ya tienes una cuenta?'}
+          {mode === 'login' ? '¿Primera vez por aquí?' : '¿Ya tienes una cuenta?'}
           <button type="button" onClick={() => {setMode(mode === 'login' ? 'register' : 'login'); setError('')}}>
-            {mode === 'login' ? 'Regístrate aquí' : 'Inicia sesión'}
+            {mode === 'login' ? 'Regístrate' : 'Inicia sesión'}
           </button>
         </p>
 
         {mode === 'login' && <div className="demo">
-          <span>Cuentas de demostración</span>
+          <span>O entra con una cuenta de demostración</span>
           <div>{demos.map(([name, email]) => <button type="button" key={email} onClick={() => setForm({email, password: 'demo123'})}>{name}</button>)}</div>
           <small>Contraseña: demo123</small>
         </div>}
       </form>
+
+      <span className="bubble" style={{width: 60, height: 60, right: '10%', top: '18%', opacity: .25}}/>
+      <span className="bubble" style={{width: 40, height: 40, left: '8%', bottom: '12%', opacity: .2, animationDelay: '-2s'}}/>
     </section>
   </div>;
 }
@@ -173,25 +198,28 @@ function Shell({user, onLogout, theme, toggleTheme}) {
   useEffect(() => {refreshBadge()}, [refreshBadge, page]);
 
   return <div className="app-shell">
-    <aside className={open ? 'open' : ''}>
-      <div className="brand light"><span className="brand-mark">L</span><span>LINDOMAR<small>HOTEL &amp; DESCANSO</small></span></div>
-      <button className="close-menu" onClick={() => setOpen(false)}><X size={18}/></button>
+    <a href="#main-content" className="skip-link">Ir al contenido principal</a>
+    {open && <div className="sidebar-overlay" onClick={() => setOpen(false)} aria-hidden="true"/>}
+    <aside className={open ? 'open' : ''} aria-label="Menú de navegación">
+      <div className="brand light"><Logo light/><span>LINDOMAR<small>HOTEL &amp; DESCANSO</small></span></div>
+      <button className="close-menu" onClick={() => setOpen(false)} aria-label="Cerrar menú"><X size={18}/></button>
       <nav>{navByRole[user.role].map(([id, name, Icon]) =>
-        <button key={id} className={page === id ? 'active' : ''} onClick={() => {setPage(id); setOpen(false)}}>
-          <Icon size={19}/>{name}
-          {id.includes('requests') && openRequests > 0 && <span className="nav-badge">{openRequests}</span>}
+        <button key={id} className={page === id ? 'active' : ''} onClick={() => {setPage(id); setOpen(false)}}
+          aria-current={page === id ? 'page' : undefined} aria-label={name}>
+          <Icon size={19} aria-hidden="true"/>{name}
+          {id.includes('requests') && openRequests > 0 && <span className="nav-badge" aria-label={`${openRequests} solicitudes abiertas`}>{openRequests}</span>}
         </button>)}
       </nav>
       <div className="sidebar-foot">
         <div className="avatar">{initials(user.name)}</div>
         <div><strong>{user.name}</strong><small>{label[user.role]}</small></div>
-        <button title="Cerrar sesión" onClick={onLogout}><LogOut size={18}/></button>
+        <button title="Cerrar sesión" onClick={onLogout} aria-label="Cerrar sesión"><LogOut size={18}/></button>
       </div>
     </aside>
 
-    <main>
+    <main id="main-content" tabIndex={-1}>
       <header>
-        <button className="menu-button" onClick={() => setOpen(true)}><Menu/></button>
+        <button className="menu-button" onClick={() => setOpen(true)} aria-label="Abrir menú"><Menu/></button>
         <div>
           <span className="eyebrow green">HOTEL LINDOMAR</span>
           <h2>{navByRole[user.role].find(x => x[0] === page)?.[1]}</h2>
@@ -231,10 +259,10 @@ function GuestHome({user, go}) {
   return <>
     <section className="welcome">
       <div>
-        <span className="eyebrow">CUENTA DE HUÉSPED</span>
+        <span className="eyebrow">TU RINCON CARIBEÑO</span>
         <h1>Hola, {user.name.split(' ')[0]}</h1>
-        <p>Consulta tus reservas, pide atención a tu habitación o resuelve tus dudas con el asistente.</p>
-        <button className="primary" onClick={() => go('rooms')}><Search size={18}/>Buscar habitación</button>
+        <p>Tu habitación, tus planes y tu ritmo. Desde aquí controlas todo lo que hace especial tu estadía en Sincelejo.</p>
+        <button className="primary" onClick={() => go('rooms')}><Search size={18}/>Explorar habitaciones</button>
       </div>
     </section>
 
@@ -390,7 +418,7 @@ function ReserveModal({room, user, dates, onClose, onDone}) {
     catch (err) {setError(err.message)} finally {setBusy(false)}
   };
 
-  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+  return <div role="dialog" aria-modal="true" className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
     <form className="modal" onSubmit={submit}>
       <button type="button" className="modal-close" onClick={onClose}><X/></button>
       <span className="eyebrow green">CONFIRMAR RESERVA</span>
@@ -546,9 +574,9 @@ function EmployeeTasks({user, notify}) {
   return <>
     <section className="employee-hero">
       <div>
-        <span className="eyebrow">CUENTA DE EMPLEADO</span>
+        <span className="eyebrow">EQUIPO LINDOMAR</span>
         <h1>{user.name}</h1>
-        <p>Estado de las tareas asignadas para el turno actual.</p>
+        <p>Mantengamos cada rincón del hotel brillando. Aquí está tu día a día en Sincelejo.</p>
       </div>
       <div className="progress-ring">
         <strong>{tasks.length ? Math.round(done / tasks.length * 100) : 0}%</strong><span>completado</span>
@@ -703,7 +731,7 @@ function AdminHome({notify}) {
       <div>
         <span className="eyebrow">ADMINISTRACIÓN</span>
         <h1>Resumen operativo</h1>
-        <p>Todo lo que está pasando hoy en el hotel, en una sola pantalla.</p>
+        <p>El pulso del hotel en tiempo real: ocupación, reservas, solicitudes y finanzas en una sola vista.</p>
       </div>
       <span>{new Date().toLocaleDateString('es-CO', {weekday: 'long', day: 'numeric', month: 'long'})}</span>
     </section>
@@ -827,7 +855,7 @@ function RoomModal({room, isNew, onClose, onSave}) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setData(d => ({...d, [k]: v}));
-  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+  return <div role="dialog" aria-modal="true" className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
     <form className="modal" onSubmit={async e => {e.preventDefault();setError('');setBusy(true);try {await onSave(data)} catch(err) {setError(err.message)} finally {setBusy(false)}}}>
       <button type="button" className="modal-close" onClick={onClose}><X/></button>
       <span className="eyebrow green">{isNew ? 'NUEVA HABITACIÓN' : 'EDITAR HABITACIÓN'}</span>
@@ -957,7 +985,7 @@ function AdminTasks({notify}) {
       {t.hasCompletionPhoto && <button className="evidence-button" onClick={() => setPhotoTask(t)}><Eye size={16}/>Ver evidencia</button>}
     </article>)}</div>
 
-    {show && <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && setShow(false)}>
+    {show && <div role="dialog" aria-modal="true" className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && setShow(false)}>
       <form className="modal" onSubmit={create}>
         <button type="button" className="modal-close" onClick={() => setShow(false)}><X/></button>
         <span className="eyebrow green">NUEVA TAREA</span>
@@ -991,7 +1019,7 @@ function EvidenceModal({task, onClose}) {
       .catch(err => setError(err.message));
     return () => {if (objectUrl) URL.revokeObjectURL(objectUrl)};
   }, [task.id]);
-  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+  return <div role="dialog" aria-modal="true" className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
     <div className="modal evidence-modal">
       <button type="button" className="modal-close" onClick={onClose}><X/></button>
       <span className="eyebrow green">EVIDENCIA DE FINALIZACIÓN</span>
@@ -1074,7 +1102,7 @@ function Finance({notify}) {
       </tr>)}</tbody>
     </table></div>
 
-    {show && <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && setShow(false)}>
+    {show && <div role="dialog" aria-modal="true" className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && setShow(false)}>
       <form className="modal" onSubmit={create}>
         <button type="button" className="modal-close" onClick={() => setShow(false)}><X/></button>
         <span className="eyebrow green">MOVIMIENTO</span>
@@ -1091,7 +1119,7 @@ function Finance({notify}) {
       </form>
     </div>}
 
-    {showReminder && <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && setShowReminder(false)}>
+    {showReminder && <div role="dialog" aria-modal="true" className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && setShowReminder(false)}>
       <form className="modal" onSubmit={createReminder}>
         <button type="button" className="modal-close" onClick={() => setShowReminder(false)}><X/></button>
         <span className="eyebrow green">RECORDATORIO</span>
@@ -1123,7 +1151,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return <div className="crash-screen">
-      <span className="brand-mark">L</span>
+      <Logo/>
       <h1>Algo no cargó bien</h1>
       <p>Ocurrió un problema al mostrar esta sección. Puedes volver e intentarlo de nuevo.</p>
       <div className="crash-actions">
