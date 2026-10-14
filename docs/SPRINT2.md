@@ -62,10 +62,18 @@ Al cambiar un rol se revocan **todas** las sesiones del usuario afectado; debe i
 
 - Al confirmar una reserva se crea una tarea **Preparar habitación** con vencimiento en la fecha de llegada.
 - Cuando una habitación pasa realmente de `OCCUPIED` a `AVAILABLE`, por finalización/cancelación de la estadía o por cambio administrativo, se crea una tarea prioritaria **Acondicionar habitación** para limpieza, inspección y reposición.
-- La tarea se asigna al empleado con menos tareas abiertas; los empates se resuelven por el identificador más antiguo. Si no hay empleados, la operación se rechaza y la transacción no deja una reserva o cambio de estado parcial.
+- La tarea se asigna al empleado con menos tareas abiertas; los empates se resuelven por el identificador más antiguo. Si no hay empleados, se conserva pendiente y sin responsable, para asignarla desde administración. La reserva o cancelación válida puede completarse.
 - Cada evento de reserva o salida conserva una clave única interna para que reintentos no creen tareas duplicadas.
 
 ## Endpoints
+
+## Integración de las ramas de Julián y José
+
+La rama integrada conserva HU-06, HU-11 y HU-24 de Julián y HU-25, HU-26, HU-27, HU-28 y HU-34 de José. Las pruebas de José están en `StaffSprint2IntegrationTest`, junto a `Sprint2IntegrationTest`, sin sustituir ninguna suite. Los controles de Spotless, Checkstyle, ESLint y Prettier permanecen obligatorios.
+
+Corrección del bug #59: se rechazan con 409 los cambios a `MAINTENANCE` o `OUT_OF_SERVICE` cuando existe una reserva `CONFIRMED` o `CHECKED_IN` con salida posterior al día actual. La regla se aplica tanto en `PATCH /rooms/{id}/status` como en `PUT /rooms/{id}`, bajo el mismo bloqueo de habitación usado al reservar. Se conservan el estado anterior y la reserva; las canceladas, finalizadas o pasadas no impiden retirar la habitación.
+
+Validación conjunta: 83 pruebas sin fallos; `mvn verify` con Spotless y Checkstyle, `npm run lint` y `npm run build`.
 
 | Método y ruta | Resultado |
 |---|---|

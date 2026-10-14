@@ -6,10 +6,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/** Define HotelClockConfig para la gestión del hotel. */
 @Configuration
 public class HotelClockConfig {
-    @Bean
-    Clock hotelClock(@Value("${hotel.time-zone:America/Bogota}") String zone) {
-        return Clock.system(ZoneId.of(zone));
-    }
+  @Bean
+  Clock hotelClock(@Value("${hotel.time-zone:America/Bogota}") String zone) {
+    return Clock.system(ZoneId.of(zone));
+  }
 }
