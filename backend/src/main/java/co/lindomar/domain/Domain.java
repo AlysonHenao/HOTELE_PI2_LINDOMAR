@@ -14,18 +14,18 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/** Agrupa las entidades y enumeraciones que conforman el dominio del hotel. */
+/** Define Domain para la gestión del hotel. */
 public final class Domain {
   private Domain() {}
 
-  /** Roles disponibles para controlar el acceso a las funciones del sistema. */
+  /** Define Role para la gestión del hotel. */
   public enum Role {
     GUEST,
     EMPLOYEE,
     ADMIN
   }
 
-  /** Estados posibles durante el ciclo de vida de una reserva. */
+  /** Define ReservationStatus para la gestión del hotel. */
   public enum ReservationStatus {
     CONFIRMED,
     CHECKED_IN,
@@ -33,14 +33,14 @@ public final class Domain {
     CANCELLED
   }
 
-  /** Estados posibles durante el ciclo de vida de una tarea operativa. */
+  /** Define TaskStatus para la gestión del hotel. */
   public enum TaskStatus {
     PENDING,
     IN_PROGRESS,
     DONE
   }
 
-  /** Estados operativos de una habitación. */
+  /** Define RoomStatus para la gestión del hotel. */
   public enum RoomStatus {
     AVAILABLE,
     OCCUPIED,
@@ -49,14 +49,14 @@ public final class Domain {
     OUT_OF_SERVICE
   }
 
-  /** Estados posibles para una solicitud de atención. */
+  /** Define RequestStatus para la gestión del hotel. */
   public enum RequestStatus {
     OPEN,
     IN_PROGRESS,
     RESOLVED
   }
 
-  /** Tipos de movimiento financiero registrados por el hotel. */
+  /** Define EntryType para la gestión del hotel. */
   public enum EntryType {
     INCOME,
     EXPENSE
@@ -72,13 +72,7 @@ public final class Domain {
 
     public AuthSession() {}
 
-    /**
-     * Crea una sesión autenticada.
-     *
-     * @param token identificador opaco de la sesión
-     * @param userId identificador del usuario autenticado
-     * @param expiresAt fecha y hora de vencimiento
-     */
+    /** Inicializa AuthSession para la gestión del hotel. */
     public AuthSession(String token, Long userId, LocalDateTime expiresAt) {
       this.token = token;
       this.userId = userId;
@@ -110,14 +104,14 @@ public final class Domain {
     }
   }
 
-  /** Estados de seguimiento de un recordatorio de gasto. */
+  /** Define ReminderStatus para la gestión del hotel. */
   public enum ReminderStatus {
     PENDING,
     DONE
   }
 
-  /** Cuenta con credenciales, datos personales y un rol de acceso. */
-  @Entity
+  /** Define UserAccount para la gestión del hotel. */
+  @Entity(name = "UserAccount")
   @Table(name = "users")
   public static class UserAccount {
     @Id
@@ -140,15 +134,7 @@ public final class Domain {
 
     public UserAccount() {}
 
-    /**
-     * Crea una cuenta de usuario.
-     *
-     * @param name nombre completo
-     * @param email correo usado para iniciar sesión
-     * @param password contraseña cifrada
-     * @param role rol asignado
-     * @param phone teléfono de contacto
-     */
+    /** Inicializa UserAccount para la gestión del hotel. */
     public UserAccount(String name, String email, String password, Role role, String phone) {
       this.name = name;
       this.email = email;
@@ -206,7 +192,7 @@ public final class Domain {
     }
   }
 
-  /** Habitación ofrecida por el hotel con sus características y estado operativo. */
+  /** Define Room para la gestión del hotel. */
   @Entity(name = "Room")
   @Table(name = "rooms")
   public static class Room {
@@ -225,24 +211,15 @@ public final class Domain {
     private boolean petFriendly;
     private String services;
 
+    @Column(length = 2048)
+    private String imageUrl;
+
     @Enumerated(EnumType.STRING)
     private RoomStatus status;
 
     public Room() {}
 
-    /**
-     * Crea una habitación.
-     *
-     * @param number número visible de la habitación
-     * @param floor piso donde se encuentra
-     * @param type tipo comercial
-     * @param capacity número máximo de huéspedes
-     * @param price tarifa por noche
-     * @param balcony indica si tiene balcón
-     * @param petFriendly indica si admite mascotas
-     * @param services servicios incluidos
-     * @param status estado operativo inicial
-     */
+    /** Inicializa Room para la gestión del hotel. */
     public Room(
         String number,
         int floor,
@@ -336,6 +313,14 @@ public final class Domain {
       services = v;
     }
 
+    public String getImageUrl() {
+      return imageUrl;
+    }
+
+    public void setImageUrl(String v) {
+      imageUrl = v;
+    }
+
     public RoomStatus getStatus() {
       return status;
     }
@@ -345,8 +330,8 @@ public final class Domain {
     }
   }
 
-  /** Reserva de una habitación asociada a un huésped y a un rango de fechas. */
-  @Entity
+  /** Define Reservation para la gestión del hotel. */
+  @Entity(name = "Reservation")
   @Table(name = "reservations")
   public static class Reservation {
     @Id
@@ -440,7 +425,7 @@ public final class Domain {
     }
   }
 
-  /** Solicitud de atención creada por un huésped durante su estadía. */
+  /** Define ServiceRequest para la gestión del hotel. */
   @Entity
   @Table(name = "service_requests")
   public static class ServiceRequest {
@@ -519,7 +504,7 @@ public final class Domain {
     }
   }
 
-  /** Tarea operativa asignada a un empleado del hotel. */
+  /** Define StaffTask para la gestión del hotel. */
   @Entity
   @Table(name = "staff_tasks")
   public static class StaffTask {
@@ -540,6 +525,10 @@ public final class Domain {
     private String priority;
 
     @JsonIgnore
+    @Column(unique = true, length = 160)
+    private String eventKey;
+
+    @JsonIgnore
     @Column(columnDefinition = "bytea")
     private byte[] completionPhoto;
 
@@ -549,16 +538,7 @@ public final class Domain {
 
     public StaffTask() {}
 
-    /**
-     * Crea una tarea operativa.
-     *
-     * @param employeeId identificador del empleado responsable
-     * @param title título breve
-     * @param description instrucciones de la tarea
-     * @param status estado inicial
-     * @param dueDate fecha límite
-     * @param priority prioridad asignada
-     */
+    /** Inicializa StaffTask para la gestión del hotel. */
     public StaffTask(
         Long employeeId,
         String title,
@@ -630,6 +610,14 @@ public final class Domain {
       priority = v;
     }
 
+    public String getEventKey() {
+      return eventKey;
+    }
+
+    public void setEventKey(String v) {
+      eventKey = v;
+    }
+
     public byte[] getCompletionPhoto() {
       return completionPhoto;
     }
@@ -668,7 +656,7 @@ public final class Domain {
     }
   }
 
-  /** Movimiento de ingreso o gasto registrado por el hotel. */
+  /** Define FinanceEntry para la gestión del hotel. */
   @Entity
   @Table(name = "finance_entries")
   public static class FinanceEntry {
@@ -685,14 +673,7 @@ public final class Domain {
 
     public FinanceEntry() {}
 
-    /**
-     * Crea un movimiento financiero.
-     *
-     * @param type tipo de movimiento
-     * @param concept descripción del movimiento
-     * @param amount valor monetario
-     * @param date fecha contable
-     */
+    /** Inicializa FinanceEntry para la gestión del hotel. */
     public FinanceEntry(EntryType type, String concept, BigDecimal amount, LocalDate date) {
       this.type = type;
       this.concept = concept;
@@ -759,15 +740,7 @@ public final class Domain {
 
     public ExpenseReminder() {}
 
-    /**
-     * Crea un recordatorio de gasto.
-     *
-     * @param concept descripción del gasto esperado
-     * @param category categoría presupuestal
-     * @param estimatedAmount valor estimado
-     * @param dueDate fecha límite de pago
-     * @param status estado de seguimiento
-     */
+    /** Inicializa ExpenseReminder para la gestión del hotel. */
     public ExpenseReminder(
         String concept,
         String category,

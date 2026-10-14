@@ -50,7 +50,15 @@ const api = async (path, options = {}) => {
   };
   const res = await fetch(`/api${path}`, { ...options, headers });
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(body?.message || 'No fue posible completar la acción');
+  if (!res.ok) {
+    if (
+      res.status === 401 &&
+      path !== '/auth/login' &&
+      localStorage.getItem('lindomar-token') === token
+    )
+      window.dispatchEvent(new Event('lindomar-session-expired'));
+    throw new Error(body?.message || 'No fue posible completar la acción');
+  }
   return body;
 };
 const money = (v) =>
@@ -450,8 +458,10 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
             <Guest page={page} user={user} notify={notify} go={setPage} />
           ) : user.role === 'EMPLOYEE' ? (
             <Employee page={page} user={user} notify={notify} onChange={refreshBadge} />
+          ) : user.role === 'ADMIN' ? (
+            <Admin page={page} user={user} notify={notify} onChange={refreshBadge} />
           ) : (
-            <Admin page={page} notify={notify} onChange={refreshBadge} />
+            <p role="alert">Tu cuenta no tiene un rol válido.</p>
           )}
         </div>
       </main>
@@ -463,7 +473,7 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
 /* ============ HUÉSPED ============ */
 function Guest({ page, user, notify, go }) {
   if (page === 'home') return <GuestHome user={user} go={go} />;
-  if (page === 'rooms') return <Rooms notify={notify} />;
+  if (page === 'rooms') return <Rooms user={user} notify={notify} />;
   if (page === 'reservations') return <Reservations user={user} notify={notify} />;
   if (page === 'requests') return <Requests user={user} notify={notify} />;
   return <Assistant />;
@@ -560,7 +570,7 @@ function GuestHome({ user, go }) {
   );
 }
 
-function Rooms({ notify }) {
+function Rooms({ user, notify }) {
   const [rooms, setRooms] = useState([]);
   const [allRooms, setAllRooms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -578,18 +588,18 @@ function Rooms({ notify }) {
   const [searchError, setSearchError] = useState('');
   const [searchedDates, setSearchedDates] = useState(null);
   const searchVersion = useRef(0);
-  const initialFilters = useRef(filters);
 
-  const load = useCallback(async (activeFilters) => {
+  const initialFilters = useRef(filters);
+  const load = useCallback(async (criteria) => {
     const version = ++searchVersion.current;
     setSearchError('');
     setRooms([]);
     setSearchedDates(null);
     if (
-      !activeFilters.checkIn ||
-      !activeFilters.checkOut ||
-      activeFilters.checkIn < today() ||
-      activeFilters.checkOut <= activeFilters.checkIn
+      !criteria.checkIn ||
+      !criteria.checkOut ||
+      criteria.checkIn < today() ||
+      criteria.checkOut <= criteria.checkIn
     ) {
       setSearchError('Selecciona una llegada desde hoy y una salida posterior a la llegada.');
       setLoading(false);
@@ -597,15 +607,12 @@ function Rooms({ notify }) {
     }
     setLoading(true);
     const p = new URLSearchParams();
-    Object.entries(activeFilters).forEach(([k, v]) => v !== '' && v !== false && p.set(k, v));
+    Object.entries(criteria).forEach(([k, v]) => v !== '' && v !== false && p.set(k, v));
     try {
       const results = await api(`/rooms?${p}`);
       if (version === searchVersion.current) {
         setRooms(results);
-        setSearchedDates({
-          checkIn: activeFilters.checkIn,
-          checkOut: activeFilters.checkOut,
-        });
+        setSearchedDates({ checkIn: criteria.checkIn, checkOut: criteria.checkOut });
       }
     } catch (err) {
       if (version === searchVersion.current) setSearchError(err.message);
@@ -741,8 +748,9 @@ function Rooms({ notify }) {
       )}
 
       {selected && searchedDates && (
-        <ReserveModal
-          room={selected}
+        <RoomDetailsModal
+          roomId={selected.id}
+          user={user}
           dates={searchedDates}
           onClose={() => setSelected(null)}
           onDone={() => {
@@ -790,7 +798,7 @@ function RoomCard({ room, onSelect }) {
             <small>por noche</small>
           </span>
           <button className="primary" onClick={() => onSelect(room)}>
-            Ver y reservar
+            Ver detalles
           </button>
         </div>
       </div>
@@ -851,7 +859,152 @@ function RoomMap({ rooms, allRooms, onSelect }) {
   );
 }
 
-function ReserveModal({ room, dates, onClose, onDone }) {
+function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
+  const [detail, setDetail] = useState(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const [booking, setBooking] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setDetail(null);
+    setError('');
+    setImageFailed(false);
+    api(
+      `/rooms/${roomId}?${new URLSearchParams({ checkIn: dates.checkIn, checkOut: dates.checkOut })}`
+    )
+      .then((data) => {
+        if (active) setDetail(data);
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [roomId, dates.checkIn, dates.checkOut, attempt]);
+  const room = detail?.room;
+  if (booking && room)
+    return (
+      <ReserveModal
+        room={room}
+        user={user}
+        dates={dates}
+        policy={detail.cancellationPolicy}
+        onClose={onClose}
+        onBack={() => setBooking(false)}
+        onDone={onDone}
+      />
+    );
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <section
+        className="modal room-details"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="room-detail-title"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+        }}
+      >
+        <button autoFocus className="modal-close" aria-label="Cerrar detalles" onClick={onClose}>
+          <X />
+        </button>
+        <span className="eyebrow green">CONOCE TU HABITACIÓN</span>
+        <h2 id="room-detail-title">
+          {room ? `Habitación ${room.number}` : 'Detalles de habitación'}
+        </h2>
+        {error ? (
+          <>
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+            <button className="secondary" onClick={() => setAttempt((n) => n + 1)}>
+              Reintentar
+            </button>
+          </>
+        ) : !room ? (
+          <p role="status">Cargando detalles y disponibilidad…</p>
+        ) : (
+          <>
+            {room.imageUrl && !imageFailed ? (
+              <img
+                className="room-photo"
+                src={room.imageUrl}
+                alt={`Habitación ${room.number}, ${room.type}`}
+                onError={() => setImageFailed(true)}
+              />
+            ) : (
+              <div className="room-photo-placeholder">
+                <BedDouble size={48} />
+                <span>Fotografía no disponible</span>
+              </div>
+            )}
+            <dl className="room-facts">
+              <div>
+                <dt>Tipo</dt>
+                <dd>{room.type}</dd>
+              </div>
+              <div>
+                <dt>Piso</dt>
+                <dd>{room.floor}</dd>
+              </div>
+              <div>
+                <dt>Capacidad</dt>
+                <dd>Hasta {room.capacity} huéspedes</dd>
+              </div>
+              <div>
+                <dt>Precio por noche</dt>
+                <dd>{money(room.price)}</dd>
+              </div>
+              <div>
+                <dt>Balcón</dt>
+                <dd>{room.balcony ? 'Sí' : 'No'}</dd>
+              </div>
+              <div>
+                <dt>Mascotas</dt>
+                <dd>{room.petFriendly ? 'Permitidas' : 'No permitidas'}</dd>
+              </div>
+            </dl>
+            <h3>Servicios y comodidades</h3>
+            <div className="tags">
+              {room.services ? (
+                room.services
+                  .split(/\s*[·,]\s*/)
+                  .filter(Boolean)
+                  .map((s, i) => <span key={i}>{s}</span>)
+              ) : (
+                <span>Sin servicios adicionales registrados</span>
+              )}
+            </div>
+            <p>
+              {fmtDate(dates.checkIn)} — {fmtDate(dates.checkOut)} · {detail.nights} noche(s)
+            </p>
+            <p role="status" className={detail.available ? 'positive' : 'form-error'}>
+              {detail.available
+                ? 'Disponible para las fechas seleccionadas'
+                : 'No disponible para las fechas seleccionadas'}
+            </p>
+            <div className="price-summary">
+              <span>Total de la estadía</span>
+              <strong>{money(detail.total)}</strong>
+            </div>
+            <p className="policy-note">{detail.cancellationPolicy}</p>
+            <button
+              className="primary wide"
+              disabled={!detail.available}
+              onClick={() => setBooking(true)}
+            >
+              Continuar con la reserva
+            </button>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ReserveModal({ room, dates, policy, onClose, onBack, onDone }) {
   const [form, setForm] = useState({
     roomId: room.id,
     checkIn: dates.checkIn,
@@ -883,8 +1036,11 @@ function ReserveModal({ room, dates, onClose, onDone }) {
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal" onSubmit={submit}>
-        <button type="button" className="modal-close" onClick={onClose}>
+        <button type="button" className="modal-close" aria-label="Cerrar reserva" onClick={onClose}>
           <X />
+        </button>
+        <button type="button" className="ghost" onClick={onBack}>
+          Volver a los detalles
         </button>
         <span className="eyebrow green">CONFIRMAR RESERVA</span>
         <h2>Habitación {room.number}</h2>
@@ -946,6 +1102,7 @@ function ReserveModal({ room, dates, onClose, onDone }) {
           </span>
           <strong>{money(room.price * nights)}</strong>
         </div>
+        <p className="policy-note">{policy}</p>
         {error && <p className="form-error">{error}</p>}
         <button className="primary wide" disabled={busy}>
           {busy ? 'Confirmando…' : 'Confirmar reserva'}
@@ -957,17 +1114,36 @@ function ReserveModal({ room, dates, onClose, onDone }) {
 
 function Reservations({ user, notify }) {
   const [items, setItems] = useState([]);
-  const load = () => api('/reservations/mine').then(setItems);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(null);
+  const load = () =>
+    api('/reservations/mine')
+      .then(setItems)
+      .catch((err) => setError(err.message));
   // Se envuelve en llaves a propósito: si el efecto devuelve la promesa de `load`,
   // React la toma como función de limpieza y falla al desmontar la vista.
   useEffect(() => {
     load();
   }, [user.id]);
-  const cancel = async (id) => {
-    if (!confirm('¿Deseas cancelar esta reserva?')) return;
-    await api(`/reservations/${id}`, { method: 'DELETE' });
-    notify('Reserva cancelada');
-    load();
+  const cancel = async (reservation) => {
+    if (
+      !confirm(
+        `¿Cancelar la reserva #${reservation.id} de la habitación ${reservation.roomNumber}? Se registrará un reembolso completo de ${money(reservation.total)}.`
+      )
+    )
+      return;
+    setBusy(reservation.id);
+    setError('');
+    try {
+      await api(`/reservations/${reservation.id}`, { method: 'DELETE' });
+      notify('Reserva cancelada. Reembolso registrado y fechas liberadas.');
+      await load();
+    } catch (err) {
+      setError(err.message);
+      await load();
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
@@ -978,6 +1154,11 @@ function Reservations({ user, notify }) {
           <p className="muted">Consulta el estado y los detalles de tus estadías.</p>
         </div>
       </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="list-stack">
         {items.map((r) => (
           <article className="reservation-row" key={r.id}>
@@ -986,17 +1167,30 @@ function Reservations({ user, notify }) {
               <strong>{r.roomNumber}</strong>
             </div>
             <div>
-              <h3>{r.roomType}</h3>
+              <h3>
+                {r.roomType} · Habitación {r.roomNumber}
+              </h3>
               <p>
                 {fmtDate(r.checkIn)} — {fmtDate(r.checkOut)} · {r.guests} huésped(es)
               </p>
               {r.notes && <small>“{r.notes}”</small>}
+              <p className="policy-note">{r.cancellationPolicy}</p>
+              {r.status === 'CONFIRMED' && (
+                <small>
+                  Límite:{' '}
+                  {new Date(r.cancellationDeadline).toLocaleString('es-CO', {
+                    timeZone: 'America/Bogota',
+                  })}{' '}
+                  (Colombia)
+                </small>
+              )}
+              {!r.cancellable && <small>{r.cancellationReason}</small>}
             </div>
             <strong className="reservation-total">{money(r.total)}</strong>
             <span className={`status ${r.status.toLowerCase()}`}>{label[r.status]}</span>
-            {r.status === 'CONFIRMED' && (
-              <button className="ghost danger" onClick={() => cancel(r.id)}>
-                Cancelar
+            {r.cancellable && (
+              <button className="ghost danger" disabled={busy !== null} onClick={() => cancel(r)}>
+                {busy === r.id ? 'Cancelando…' : 'Cancelar'}
               </button>
             )}
           </article>
@@ -1504,12 +1698,12 @@ function Metric({ icon: Icon, label: lab, value, help }) {
   );
 }
 
-function Admin({ page, notify, onChange }) {
+function Admin({ page, user, notify, onChange }) {
   if (page === 'admin-home') return <AdminHome notify={notify} />;
   if (page === 'admin-rooms') return <AdminRooms notify={notify} />;
   if (page === 'admin-reservations') return <AdminReservations notify={notify} />;
   if (page === 'admin-requests') return <ServiceRequests notify={notify} onChange={onChange} />;
-  if (page === 'admin-users') return <AdminUsers />;
+  if (page === 'admin-users') return <AdminUsers currentUser={user} notify={notify} />;
   if (page === 'admin-tasks') return <AdminTasks notify={notify} />;
   return <Finance notify={notify} />;
 }
@@ -1675,6 +1869,7 @@ const EMPTY_ROOM = {
   balcony: false,
   petFriendly: false,
   services: 'Wi-Fi · TV',
+  imageUrl: '',
   status: 'AVAILABLE',
 };
 
@@ -1720,9 +1915,14 @@ function AdminRooms({ notify }) {
   const remove = async (room) => {
     if (!confirm(`¿Eliminar la habitación ${room.number}? Esta acción no se puede deshacer.`))
       return;
-    await api(`/rooms/${room.id}`, { method: 'DELETE' });
-    notify('Habitación eliminada');
-    load();
+    setStatusError('');
+    try {
+      await api(`/rooms/${room.id}`, { method: 'DELETE' });
+      notify('Habitación eliminada');
+      await load();
+    } catch (err) {
+      setStatusError(err.message);
+    }
   };
 
   return (
@@ -1854,6 +2054,16 @@ function RoomModal({ room, isNew, onClose, onSave }) {
         <span className="eyebrow green">{isNew ? 'NUEVA HABITACIÓN' : 'EDITAR HABITACIÓN'}</span>
         <h2>{isNew ? 'Registrar habitación' : `Habitación ${data.number}`}</h2>
         <div className="form-grid">
+          <label className="full">
+            Fotografía (URL HTTPS)
+            <input
+              type="url"
+              maxLength={2048}
+              value={data.imageUrl || ''}
+              onChange={(e) => set('imageUrl', e.target.value)}
+              placeholder="https://…"
+            />
+          </label>
           <label>
             Número
             <input
@@ -1951,15 +2161,43 @@ function RoomModal({ room, isNew, onClose, onSave }) {
 
 function AdminReservations({ notify }) {
   const [items, setItems] = useState([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(null);
   const [filters, setFilters] = useState({ query: '', status: 'ALL', from: '', to: '' });
-  const load = () => api('/reservations').then(setItems);
+  const load = () =>
+    api('/reservations')
+      .then(setItems)
+      .catch((err) => setError(err.message));
   useEffect(() => {
     load();
   }, []);
   const update = async (r, status) => {
-    await api(`/reservations/${r.id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-    notify('Estado de reserva actualizado');
-    load();
+    if (
+      status === 'CANCELLED' &&
+      !confirm(`¿Cancelar la reserva #${r.id} y registrar el reembolso de ${money(r.total)}?`)
+    )
+      return;
+    setError('');
+    setBusy(r.id);
+    try {
+      await api(
+        `/reservations/${r.id}`,
+        status === 'CANCELLED'
+          ? { method: 'DELETE' }
+          : { method: 'PUT', body: JSON.stringify({ status }) }
+      );
+      notify(
+        status === 'CANCELLED'
+          ? 'Reserva cancelada y reembolso registrado'
+          : 'Estado de reserva actualizado'
+      );
+      await load();
+    } catch (err) {
+      setError(err.message);
+      await load();
+    } finally {
+      setBusy(null);
+    }
   };
   const filtered = useMemo(
     () =>
@@ -1986,6 +2224,11 @@ function AdminReservations({ notify }) {
           <p className="muted">Consulta y administra el ciclo de cada estadía.</p>
         </div>
       </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="reservation-filters" aria-label="Filtros de reservas">
         <label>
           Huésped, habitación o número
@@ -2062,15 +2305,20 @@ function AdminReservations({ notify }) {
                 <td>{money(r.total)}</td>
                 <td>
                   <select
+                    aria-label={`Estado de reserva ${r.id}`}
                     className="status-select"
                     value={r.status}
+                    disabled={busy !== null || ['CANCELLED', 'COMPLETED'].includes(r.status)}
                     onChange={(e) => update(r, e.target.value)}
                   >
-                    <option value="CONFIRMED">Confirmada</option>
-                    <option value="CHECKED_IN">Alojado</option>
-                    <option value="COMPLETED">Finalizada</option>
-                    <option value="CANCELLED">Cancelada</option>
+                    <option value={r.status}>{label[r.status]}</option>
+                    {r.status === 'CONFIRMED' && <option value="CHECKED_IN">Alojado</option>}
+                    {r.status === 'CHECKED_IN' && <option value="COMPLETED">Finalizada</option>}
+                    {r.cancellable && <option value="CANCELLED">Cancelada</option>}
                   </select>
+                  {!r.cancellable && r.status === 'CONFIRMED' && (
+                    <small>{r.cancellationReason}</small>
+                  )}
                 </td>
               </tr>
             ))}
@@ -2087,11 +2335,41 @@ function AdminReservations({ notify }) {
   );
 }
 
-function AdminUsers() {
+function AdminUsers({ currentUser, notify }) {
   const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState({});
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(null);
   useEffect(() => {
-    api('/users').then(setUsers);
+    Promise.all([api('/users'), api('/roles')])
+      .then(([list, permissions]) => {
+        setUsers(list);
+        setRoles(permissions);
+      })
+      .catch((err) => setError(err.message));
   }, []);
+  const changeRole = async (user, role) => {
+    if (
+      !confirm(
+        `¿Cambiar el rol de ${user.name} a ${label[role]}? Sus sesiones se cerrarán y deberá ingresar nuevamente.`
+      )
+    )
+      return;
+    setBusy(user.id);
+    setError('');
+    try {
+      const updated = await api(`/users/${user.id}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      });
+      setUsers((list) => list.map((u) => (u.id === updated.id ? updated : u)));
+      notify(`Rol de ${updated.name} actualizado a ${label[updated.role]}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
   return (
     <>
       <div className="section-head">
@@ -2099,6 +2377,23 @@ function AdminUsers() {
           <h3>Equipo y usuarios</h3>
           <p className="muted">Cuentas registradas y su rol en el sistema.</p>
         </div>
+      </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="permission-grid">
+        {Object.entries(roles).map(([role, permissions]) => (
+          <section className="panel" key={role}>
+            <h3>{label[role]}</h3>
+            <ul>
+              {permissions.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </div>
       <div className="user-grid">
         {users.map((u) => (
@@ -2109,7 +2404,21 @@ function AdminUsers() {
               <p>{u.email}</p>
               <small>{u.phone}</small>
             </div>
-            <span className={`role-tag ${u.role.toLowerCase()}`}>{label[u.role]}</span>
+            <label>
+              Rol de {u.name}
+              <select
+                value={u.role}
+                disabled={busy !== null || u.id === currentUser.id}
+                onChange={(e) => changeRole(u, e.target.value)}
+              >
+                {['GUEST', 'EMPLOYEE', 'ADMIN'].map((role) => (
+                  <option key={role} value={role}>
+                    {label[role]}
+                  </option>
+                ))}
+              </select>
+              {u.id === currentUser.id && <small>Otro administrador debe cambiar tu rol.</small>}
+            </label>
           </article>
         ))}
       </div>
@@ -2176,7 +2485,20 @@ function AdminTasks({ notify }) {
       setSaving(false);
     }
   };
-  const name = (id) => employees.find((e) => e.id === id)?.name || 'Empleado';
+  const name = (id) => employees.find((e) => e.id === id)?.name || 'Sin asignar';
+  const assign = async (task, employeeId) => {
+    setError('');
+    try {
+      await api(`/tasks/${task.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ employeeId: Number(employeeId) }),
+      });
+      await load();
+      notify('Tarea asignada al empleado');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   return (
     <>
@@ -2222,6 +2544,21 @@ function AdminTasks({ notify }) {
             <div>
               <small>Responsable</small>
               <strong>{name(t.employeeId)}</strong>
+              {!t.employeeId && (
+                <select
+                  aria-label={`Asignar tarea ${t.title}`}
+                  value=""
+                  disabled={!employees.length}
+                  onChange={(e) => assign(t, e.target.value)}
+                >
+                  <option value="">Asignar responsable</option>
+                  {employees.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div>
               <small>Entrega</small>
@@ -2701,6 +3038,29 @@ function App() {
         setUser(null);
       });
   }, []);
+  useEffect(() => {
+    const expired = () => {
+      localStorage.removeItem('lindomar-token');
+      setUser(null);
+    };
+    const validate = () => {
+      const token = localStorage.getItem('lindomar-token');
+      if (token)
+        api('/auth/me')
+          .then((account) => {
+            if (localStorage.getItem('lindomar-token') === token) setUser(account);
+          })
+          .catch(() => {});
+    };
+    window.addEventListener('lindomar-session-expired', expired);
+    window.addEventListener('focus', validate);
+    const interval = setInterval(validate, 30000);
+    return () => {
+      window.removeEventListener('lindomar-session-expired', expired);
+      window.removeEventListener('focus', validate);
+      clearInterval(interval);
+    };
+  }, []);
   const login = (session) => {
     localStorage.setItem('lindomar-token', session.token);
     setUser(session.user);
@@ -2718,7 +3078,19 @@ function App() {
       {user === undefined ? (
         <div className="loader">Validando sesión…</div>
       ) : user ? (
-        <Shell user={user} onLogout={logout} theme={theme} toggleTheme={toggleTheme} />
+        navByRole[user.role] ? (
+          <Shell
+            key={`${user.id}-${user.role}`}
+            user={user}
+            onLogout={logout}
+            theme={theme}
+            toggleTheme={toggleTheme}
+          />
+        ) : (
+          <p role="alert">
+            Rol no autorizado. <button onClick={logout}>Cerrar sesión</button>
+          </p>
+        )
       ) : (
         <Login onLogin={login} />
       )}

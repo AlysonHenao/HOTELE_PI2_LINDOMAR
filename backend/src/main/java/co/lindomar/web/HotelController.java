@@ -23,6 +23,7 @@ import co.lindomar.repository.ReservationRepository;
 import co.lindomar.repository.RoomRepository;
 import co.lindomar.repository.TaskRepository;
 import co.lindomar.repository.UserRepository;
+import co.lindomar.service.CancellationPolicy;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.FutureOrPresent;
@@ -32,9 +33,12 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -61,11 +65,12 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-/** API HTTP del prototipo Lindomar. */
+/** Define HotelController para la gestión del hotel. */
 @RestController
 @RequestMapping("/api")
 @CrossOrigin(origins = "*")
@@ -79,8 +84,11 @@ public class HotelController {
   private final ReminderRepository reminders;
   private final AuthSessionRepository sessions;
   private final PasswordEncoder passwords;
+  private final Clock clock;
+  private final CancellationPolicy cancellationPolicy;
+  @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager entityManager;
 
-  /** Construye el controlador con los repositorios y servicios requeridos. */
+  /** Inicializa HotelController para la gestión del hotel. */
   public HotelController(
       UserRepository u,
       RoomRepository r,
@@ -90,7 +98,9 @@ public class HotelController {
       FinanceRepository f,
       ReminderRepository rm,
       AuthSessionRepository s,
-      PasswordEncoder passwords) {
+      PasswordEncoder passwords,
+      Clock clock,
+      CancellationPolicy cancellationPolicy) {
     users = u;
     rooms = r;
     reservations = rs;
@@ -100,12 +110,14 @@ public class HotelController {
     reminders = rm;
     sessions = s;
     this.passwords = passwords;
+    this.clock = clock;
+    this.cancellationPolicy = cancellationPolicy;
   }
 
-  /** Credenciales recibidas para iniciar sesión. */
+  /** Define LoginRequest para la gestión del hotel. */
   public record LoginRequest(String email, String password) {}
 
-  /** Datos permitidos para registrar un huésped. */
+  /** Define RegisterRequest para la gestión del hotel. */
   public record RegisterRequest(
       @NotBlank(message = "El nombre es obligatorio") @Size(max = 255) String name,
       @NotBlank(message = "El correo es obligatorio")
@@ -116,7 +128,7 @@ public class HotelController {
           @Size(min = 6, max = 72, message = "La contraseña debe tener entre 6 y 72 caracteres")
           String password,
       @Size(max = 255) String phone) {
-    /** Normaliza los datos de identidad del huésped. */
+    /** Normaliza nombre y correo antes de validar el registro. */
     public RegisterRequest {
       if (name != null) {
         name = name.trim();
@@ -127,9 +139,34 @@ public class HotelController {
     }
   }
 
-  /** Estado nuevo solicitado para una habitación. */
+  /** Define RoomStatusRequest para la gestión del hotel. */
   public record RoomStatusRequest(
       @NotNull(message = "El estado es obligatorio") RoomStatus status) {}
+
+  /** Define PublicUser para la gestión del hotel. */
+  public record PublicUser(Long id, String name, String email, Role role, String phone) {}
+
+  /** Define AuthResponse para la gestión del hotel. */
+  public record AuthResponse(PublicUser user, String token) {}
+
+  /** Define ReservationView para la gestión del hotel. */
+  public record ReservationView(
+      Long id,
+      Long guestId,
+      String guestName,
+      Long roomId,
+      String roomNumber,
+      String roomType,
+      LocalDate checkIn,
+      LocalDate checkOut,
+      int guests,
+      ReservationStatus status,
+      String notes,
+      BigDecimal total,
+      boolean cancellable,
+      String cancellationReason,
+      OffsetDateTime cancellationDeadline,
+      String cancellationPolicy) {}
 
   /** Datos validados para asignar una tarea a un empleado. */
   public record TaskCreateRequest(
@@ -164,26 +201,22 @@ public class HotelController {
   public record TaskStatusRequest(
       @NotNull(message = "El estado es obligatorio") TaskStatus status) {}
 
-  /** Representación pública de una cuenta, sin contraseña. */
-  public record PublicUser(Long id, String name, String email, Role role, String phone) {}
+  /** Define RoleRequest para la gestión del hotel. */
+  public record RoleRequest(@NotNull(message = "El rol es obligatorio") Role role) {}
 
-  /** Resultado de autenticación con usuario y token de sesión. */
-  public record AuthResponse(PublicUser user, String token) {}
+  /** Define UserUpdate para la gestión del hotel. */
+  public record UserUpdate(
+      @Size(min = 1, max = 255) String name, @Size(max = 255) String phone, Role role) {}
 
-  /** Reserva enriquecida con los datos visibles del huésped y de la habitación. */
-  public record ReservationView(
-      Long id,
-      Long guestId,
-      String guestName,
-      Long roomId,
-      String roomNumber,
-      String roomType,
+  /** Define RoomDetail para la gestión del hotel. */
+  public record RoomDetail(
+      Room room,
       LocalDate checkIn,
       LocalDate checkOut,
-      int guests,
-      ReservationStatus status,
-      String notes,
-      BigDecimal total) {}
+      Boolean available,
+      Long nights,
+      BigDecimal total,
+      String cancellationPolicy) {}
 
   @PostMapping("/auth/login")
   ResponseEntity<?> login(@RequestBody LoginRequest input) {
@@ -253,24 +286,76 @@ public class HotelController {
         .toList();
   }
 
+  @Transactional
   @PutMapping("/users/{id}")
   PublicUser updateUser(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id,
-      @RequestBody UserAccount data) {
+      @Valid @RequestBody UserUpdate data) {
+    var actor = requireUser(authorization, Role.ADMIN);
+    var locked = users.findAllForUpdate();
+    // Actualiza la identidad cargada antes de esperar por el bloqueo de otra asignación.
+    locked.forEach(entityManager::refresh);
+    var u =
+        locked.stream()
+            .filter(x -> x.getId().equals(id))
+            .findFirst()
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
     requireUser(authorization, Role.ADMIN);
-    var u = users.findById(id).orElseThrow();
-    if (data.getName() != null) {
-      u.setName(data.getName());
+    if (data.name() != null) {
+      if (data.name().isBlank()) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El nombre es obligatorio");
+      }
+      u.setName(data.name().trim());
     }
-    if (data.getPhone() != null) {
-      u.setPhone(data.getPhone());
+    if (data.phone() != null) {
+      u.setPhone(data.phone().trim());
     }
-    if (data.getRole() != null) {
-      u.setRole(data.getRole());
+    if (data.role() != null && data.role() != u.getRole()) {
+      if (actor.getId().equals(id)) {
+        throw new ResponseStatusException(
+            HttpStatus.CONFLICT,
+            "No puedes cambiar tu propio rol; otro administrador debe hacerlo");
+      }
+      if (u.getRole() == Role.ADMIN
+          && locked.stream().filter(x -> x.getRole() == Role.ADMIN).count() <= 1) {
+        throw new ResponseStatusException(
+            HttpStatus.CONFLICT, "Debe permanecer al menos un administrador");
+      }
+      u.setRole(data.role());
+      sessions.deleteByUserId(id);
     }
-    users.save(u);
-    return new PublicUser(u.getId(), u.getName(), u.getEmail(), u.getRole(), u.getPhone());
+    return publicUser(users.save(u));
+  }
+
+  @Transactional
+  @PatchMapping("/users/{id}/role")
+  PublicUser updateRole(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id,
+      @Valid @RequestBody RoleRequest data) {
+    return updateUser(authorization, id, new UserUpdate(null, null, data.role()));
+  }
+
+  @GetMapping("/roles")
+  Map<Role, List<String>> roles(
+      @RequestHeader(value = "Authorization", required = false) String authorization) {
+    requireUser(authorization, Role.ADMIN);
+    return Map.of(
+        Role.GUEST,
+        List.of(
+            "Consultar habitaciones",
+            "Crear, consultar y cancelar sus propias reservas según la política",
+            "Crear y consultar sus propias solicitudes"),
+        Role.EMPLOYEE,
+        List.of("Consultar y completar sus propias tareas", "Atender solicitudes de huéspedes"),
+        Role.ADMIN,
+        List.of(
+            "Gestionar habitaciones y reservas",
+            "Gestionar usuarios y asignar roles",
+            "Asignar tareas y atender solicitudes",
+            "Consultar indicadores y gestionar finanzas"));
   }
 
   @GetMapping("/rooms")
@@ -307,6 +392,36 @@ public class HotelController {
     return rooms.findAll();
   }
 
+  @GetMapping("/rooms/{id}")
+  RoomDetail roomDetail(
+      @PathVariable Long id,
+      @RequestParam(required = false) LocalDate checkIn,
+      @RequestParam(required = false) LocalDate checkOut) {
+    var room =
+        rooms
+            .findById(id)
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+    if (checkIn == null && checkOut == null) {
+      return new RoomDetail(room, null, null, null, null, null, cancellationPolicy.description());
+    }
+    validateSearchDates(checkIn, checkOut);
+    long nights = ChronoUnit.DAYS.between(checkIn, checkOut);
+    boolean available =
+        room.getStatus() == RoomStatus.AVAILABLE
+            && !reservations.existsByRoomIdAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(
+                id, ReservationStatus.CANCELLED, checkOut, checkIn);
+    return new RoomDetail(
+        room,
+        checkIn,
+        checkOut,
+        available,
+        nights,
+        room.getPrice().multiply(BigDecimal.valueOf(nights)),
+        cancellationPolicy.description());
+  }
+
   @PostMapping("/rooms")
   ResponseEntity<?> createRoom(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -336,6 +451,7 @@ public class HotelController {
         .orElseThrow(
             () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
     normalizeAndValidateRoom(data);
+    validateOperationalChange(id, data.getStatus());
     data.setId(id);
     try {
       return ResponseEntity.ok(rooms.saveAndFlush(data));
@@ -357,16 +473,40 @@ public class HotelController {
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+    validateOperationalChange(id, data.status());
+    var previous = room.getStatus();
     room.setStatus(data.status());
-    return rooms.save(room);
+    var saved = rooms.save(room);
+    if (previous == RoomStatus.OCCUPIED && data.status() == RoomStatus.AVAILABLE) {
+      assignAutomaticTask(
+          "ROOM_VACATED_MANUAL:" + room.getId() + ":" + UUID.randomUUID(),
+          "Acondicionar habitación " + room.getNumber(),
+          "La habitación quedó desocupada. Realizar limpieza, inspección y reposición.",
+          LocalDate.now(clock),
+          "Alta");
+    }
+    return saved;
   }
 
+  @Transactional
   @DeleteMapping("/rooms/{id}")
   void deleteRoom(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
     requireUser(authorization, Role.ADMIN);
-    rooms.deleteById(id);
+    var room =
+        rooms
+            .findByIdForUpdate(id)
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+    if (reservations.existsByRoomId(id)) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "La habitación tiene historial de reservas; "
+              + "usa el estado fuera de servicio para retirarla");
+    }
+    rooms.delete(room);
   }
 
   private void validateSearchDates(LocalDate checkIn, LocalDate checkOut) {
@@ -374,7 +514,7 @@ public class HotelController {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "Selecciona las fechas de llegada y salida");
     }
-    if (checkIn.isBefore(LocalDate.now())) {
+    if (checkIn.isBefore(LocalDate.now(clock))) {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "La llegada no puede ser anterior a hoy");
     }
@@ -406,6 +546,23 @@ public class HotelController {
       room.setServices("");
     } else {
       room.setServices(room.getServices().trim());
+    }
+    if (room.getImageUrl() != null && !room.getImageUrl().isBlank()) {
+      try {
+        var uri = java.net.URI.create(room.getImageUrl().trim());
+        if (!"https".equalsIgnoreCase(uri.getScheme())
+            || uri.getHost() == null
+            || uri.getUserInfo() != null
+            || room.getImageUrl().length() > 2048) {
+          throw new IllegalArgumentException();
+        }
+      } catch (IllegalArgumentException ex) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "La fotografía debe usar una URL HTTPS válida");
+      }
+      room.setImageUrl(room.getImageUrl().trim());
+    } else {
+      room.setImageUrl(null);
     }
   }
 
@@ -441,6 +598,10 @@ public class HotelController {
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @RequestBody Reservation r) {
     final var guest = requireUser(authorization, Role.GUEST);
+    r.setId(null);
+    if (r.getRoomId() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Selecciona una habitación");
+    }
     try {
       validateSearchDates(r.getCheckIn(), r.getCheckOut());
     } catch (ResponseStatusException ex) {
@@ -470,7 +631,8 @@ public class HotelController {
             .multiply(
                 BigDecimal.valueOf(ChronoUnit.DAYS.between(r.getCheckIn(), r.getCheckOut()))));
     r.setStatus(ReservationStatus.CONFIRMED);
-    if (!r.getCheckIn().isAfter(LocalDate.now()) && r.getCheckOut().isAfter(LocalDate.now())) {
+    if (!r.getCheckIn().isAfter(LocalDate.now(clock))
+        && r.getCheckOut().isAfter(LocalDate.now(clock))) {
       room.setStatus(RoomStatus.OCCUPIED);
       rooms.save(room);
     }
@@ -481,7 +643,17 @@ public class HotelController {
             EntryType.INCOME,
             "Reserva #" + saved.id() + " · Habitación " + saved.roomNumber(),
             saved.total(),
-            LocalDate.now()));
+            LocalDate.now(clock)));
+    assignAutomaticTask(
+        "RESERVATION_CREATED:" + saved.id(),
+        "Preparar habitación " + saved.roomNumber(),
+        "Preparar la habitación para la reserva #"
+            + saved.id()
+            + " con llegada el "
+            + saved.checkIn()
+            + ".",
+        saved.checkIn(),
+        "Media");
     return ResponseEntity.ok(saved);
   }
 
@@ -492,27 +664,53 @@ public class HotelController {
       @PathVariable Long id,
       @RequestBody Reservation data) {
     requireUser(authorization, Role.ADMIN);
-    var r = reservations.findById(id).orElseThrow();
-    if (data.getCheckIn() != null) {
-      r.setCheckIn(data.getCheckIn());
+    var r = lockedReservation(id);
+    if (data.getStatus() == ReservationStatus.CANCELLED) {
+      cancelReservation(authorization, id);
+      return view(r);
     }
-    if (data.getCheckOut() != null) {
-      r.setCheckOut(data.getCheckOut());
+    if (r.getStatus() == ReservationStatus.CANCELLED
+        || r.getStatus() == ReservationStatus.COMPLETED) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Una reserva cancelada o finalizada no puede modificarse");
     }
-    if (data.getGuests() > 0) {
-      r.setGuests(data.getGuests());
+    var room =
+        rooms
+            .findByIdForUpdate(r.getRoomId())
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+    // La modificación de fechas/precio pertenece a HU-10; no se permite usarla para evadir el plazo
+    // de cancelación.
+    if ((data.getCheckIn() != null && !data.getCheckIn().equals(r.getCheckIn()))
+        || (data.getCheckOut() != null && !data.getCheckOut().equals(r.getCheckOut()))) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "Este flujo solo permite actualizar el estado y las observaciones de la reserva");
     }
-    if (data.getStatus() != null) {
-      r.setStatus(data.getStatus());
-      var room = rooms.findByIdForUpdate(r.getRoomId()).orElseThrow();
+    if (data.getStatus() != null && data.getStatus() != r.getStatus()) {
       if (data.getStatus() == ReservationStatus.CHECKED_IN) {
+        if (r.getStatus() != ReservationStatus.CONFIRMED
+            || LocalDate.now(clock).isBefore(r.getCheckIn())
+            || !LocalDate.now(clock).isBefore(r.getCheckOut())) {
+          throw new ResponseStatusException(
+              HttpStatus.CONFLICT,
+              "El ingreso solo se permite durante las fechas de una reserva confirmada");
+        }
+        if (room.getStatus() != RoomStatus.AVAILABLE && room.getStatus() != RoomStatus.OCCUPIED) {
+          throw new ResponseStatusException(HttpStatus.CONFLICT, "La habitación no está operativa");
+        }
         room.setStatus(RoomStatus.OCCUPIED);
+      } else if (data.getStatus() == ReservationStatus.COMPLETED) {
+        if (r.getStatus() != ReservationStatus.CHECKED_IN) {
+          throw new ResponseStatusException(
+              HttpStatus.CONFLICT, "Solo se puede finalizar una estadía iniciada");
+        }
+        releaseRoom(r, room);
+      } else {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "Transición de estado no permitida");
       }
-      if (data.getStatus() == ReservationStatus.COMPLETED
-          || data.getStatus() == ReservationStatus.CANCELLED) {
-        room.setStatus(RoomStatus.AVAILABLE);
-      }
-      rooms.save(room);
+      r.setStatus(data.getStatus());
     }
     if (data.getNotes() != null) {
       r.setNotes(data.getNotes());
@@ -522,24 +720,34 @@ public class HotelController {
 
   @Transactional
   @DeleteMapping("/reservations/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
   void cancelReservation(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
     var actor = requireUser(authorization, null);
-    var r = reservations.findById(id).orElseThrow();
+    if (actor.getRole() != Role.ADMIN && actor.getRole() != Role.GUEST) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "El rol no permite esta acción");
+    }
+    var r = lockedReservation(id);
     if (actor.getRole() != Role.ADMIN && !Objects.equals(actor.getId(), r.getGuestId())) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No puedes cancelar esta reserva");
     }
     if (r.getStatus() == ReservationStatus.CANCELLED) {
       return;
     }
+    var rejection = cancellationPolicy.rejection(r);
+    if (rejection != null) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, rejection);
+    }
+    var room =
+        rooms
+            .findByIdForUpdate(r.getRoomId())
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
     r.setStatus(ReservationStatus.CANCELLED);
     reservations.save(r);
-    var room = rooms.findByIdForUpdate(r.getRoomId()).orElseThrow();
-    if (room.getStatus() == RoomStatus.OCCUPIED) {
-      room.setStatus(RoomStatus.AVAILABLE);
-    }
-    rooms.save(room);
+    releaseRoom(r, room);
     // HU-14: se registra el reembolso para que el balance siga siendo coherente tras la
     // cancelación.
     var v = view(r);
@@ -548,7 +756,72 @@ public class HotelController {
             EntryType.EXPENSE,
             "Reembolso reserva #" + v.id() + " · Habitación " + v.roomNumber(),
             v.total(),
-            LocalDate.now()));
+            LocalDate.now(clock)));
+  }
+
+  private Reservation lockedReservation(Long id) {
+    return reservations
+        .findByIdForUpdate(id)
+        .orElseThrow(
+            () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reserva no encontrada"));
+  }
+
+  private void releaseRoom(Reservation r, Room room) {
+    var today = LocalDate.now(clock);
+    if (room.getStatus() == RoomStatus.OCCUPIED
+        && !today.isBefore(r.getCheckIn())
+        && (r.getStatus() == ReservationStatus.CHECKED_IN || today.isBefore(r.getCheckOut()))
+        && !reservations.existsByRoomIdAndIdNotAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(
+            room.getId(), r.getId(), ReservationStatus.CANCELLED, today.plusDays(1), today)) {
+      room.setStatus(RoomStatus.AVAILABLE);
+      rooms.save(room);
+      assignAutomaticTask(
+          "ROOM_VACATED:" + r.getId(),
+          "Acondicionar habitación " + room.getNumber(),
+          "La habitación quedó desocupada tras la reserva #"
+              + r.getId()
+              + ". Realizar limpieza, inspección y reposición.",
+          today,
+          "Alta");
+    }
+  }
+
+  private void validateOperationalChange(Long roomId, RoomStatus status) {
+    if ((status == RoomStatus.MAINTENANCE || status == RoomStatus.OUT_OF_SERVICE)
+        && reservations.existsByRoomIdAndStatusInAndCheckOutGreaterThan(
+            roomId,
+            List.of(ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN),
+            LocalDate.now(clock))) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "La habitación tiene reservas activas. "
+              + "Reubica o cancela las reservas antes de retirarla del servicio");
+    }
+  }
+
+  private void assignAutomaticTask(
+      String eventKey, String title, String description, LocalDate dueDate, String priority) {
+    if (tasks.existsByEventKey(eventKey)) {
+      return;
+    }
+    var employee =
+        users.findByRoleOrderByIdAsc(Role.EMPLOYEE).stream()
+            .min(
+                Comparator.comparingLong(
+                        (UserAccount user) ->
+                            tasks.countByEmployeeIdAndStatusNot(user.getId(), TaskStatus.DONE))
+                    .thenComparing(UserAccount::getId))
+            .orElse(null);
+    var task =
+        new StaffTask(
+            employee == null ? null : employee.getId(),
+            title,
+            description,
+            TaskStatus.PENDING,
+            dueDate,
+            priority);
+    task.setEventKey(eventKey);
+    tasks.save(task);
   }
 
   @GetMapping("/requests")
@@ -572,10 +845,11 @@ public class HotelController {
   ServiceRequest createRequest(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @RequestBody ServiceRequest r) {
-    var guest = requireUser(authorization, Role.GUEST);
+    final var guest = requireUser(authorization, Role.GUEST);
+    r.setId(null);
     r.setGuestId(guest.getId());
     r.setStatus(RequestStatus.OPEN);
-    r.setCreatedAt(LocalDateTime.now());
+    r.setCreatedAt(LocalDateTime.now(clock));
     return requests.save(r);
   }
 
@@ -611,7 +885,6 @@ public class HotelController {
         : tasks.findByEmployeeIdOrderByDueDateAsc(employeeId);
   }
 
-  /** HU-26: devuelve exclusivamente las tareas del empleado autenticado. */
   @GetMapping("/tasks/mine")
   List<StaffTask> getMyTasks(
       @RequestHeader(value = "Authorization", required = false) String authorization) {
@@ -619,7 +892,6 @@ public class HotelController {
     return tasks.findByEmployeeIdOrderByDueDateAsc(employee.getId());
   }
 
-  /** HU-25: asigna una tarea nueva a una cuenta de empleado válida. */
   @PostMapping("/tasks")
   StaffTask createTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -644,7 +916,6 @@ public class HotelController {
             input.priority()));
   }
 
-  /** Edición administrativa de los datos de una tarea existente. */
   @PutMapping("/tasks/{id}")
   StaffTask updateTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -656,6 +927,19 @@ public class HotelController {
             .findById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea no encontrada"));
+    if (data.getEmployeeId() != null) {
+      var employee =
+          users
+              .findById(data.getEmployeeId())
+              .orElseThrow(
+                  () ->
+                      new ResponseStatusException(HttpStatus.NOT_FOUND, "Empleado no encontrado"));
+      if (employee.getRole() != Role.EMPLOYEE) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "La tarea solo puede asignarse a un empleado");
+      }
+      t.setEmployeeId(employee.getId());
+    }
     if (data.getStatus() != null) {
       t.setStatus(data.getStatus());
     }
@@ -674,7 +958,6 @@ public class HotelController {
     return tasks.save(t);
   }
 
-  /** HU-27: permite que el empleado inicie una tarea pendiente sin saltarse el cierre. */
   @PatchMapping("/tasks/{id}/status")
   StaffTask updateMyTaskStatus(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -703,7 +986,6 @@ public class HotelController {
     return tasks.save(task);
   }
 
-  /** HU-28: finaliza una tarea en progreso y conserva una fotografía opcional como evidencia. */
   @PostMapping(value = "/tasks/{id}/complete", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   ResponseEntity<?> completeTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -738,7 +1020,7 @@ public class HotelController {
       task.setCompletionPhotoContentType(photo.getContentType());
     }
     task.setStatus(TaskStatus.DONE);
-    task.setCompletedAt(LocalDateTime.now());
+    task.setCompletedAt(LocalDateTime.now(clock));
     return ResponseEntity.ok(tasks.save(task));
   }
 
@@ -776,7 +1058,7 @@ public class HotelController {
       @RequestBody FinanceEntry e) {
     requireUser(authorization, Role.ADMIN);
     if (e.getDate() == null) {
-      e.setDate(LocalDate.now());
+      e.setDate(LocalDate.now(clock));
     }
     return finance.save(e);
   }
@@ -798,7 +1080,7 @@ public class HotelController {
       r.setStatus(ReminderStatus.PENDING);
     }
     if (r.getDueDate() == null) {
-      r.setDueDate(LocalDate.now());
+      r.setDueDate(LocalDate.now(clock));
     }
     return reminders.save(r);
   }
@@ -841,7 +1123,7 @@ public class HotelController {
     reminders.save(r);
     return finance.save(
         new FinanceEntry(
-            EntryType.EXPENSE, r.getConcept(), r.getEstimatedAmount(), LocalDate.now()));
+            EntryType.EXPENSE, r.getConcept(), r.getEstimatedAmount(), LocalDate.now(clock)));
   }
 
   @GetMapping("/dashboard")
@@ -886,7 +1168,9 @@ public class HotelController {
     long dueSoon =
         pending.stream()
             .filter(
-                x -> x.getDueDate() != null && !x.getDueDate().isAfter(LocalDate.now().plusDays(7)))
+                x ->
+                    x.getDueDate() != null
+                        && !x.getDueDate().isAfter(LocalDate.now(clock).plusDays(7)))
             .count();
     var result = new LinkedHashMap<String, Object>();
     result.put("rooms", allRooms.size());
@@ -926,8 +1210,8 @@ public class HotelController {
                             + "La clave se entrega al hacer check-in."
                         : s.contains("piscina")
                             ? "La piscina está abierta todos los días de 8:00 a. m. a 8:00 p. m."
-                            : "Puedo ayudarte con horarios, desayuno, Wi-Fi, piscina, mascotas, "
-                                + "check-in y servicios del hotel.";
+                            : "Puedo ayudarte con horarios, desayuno, Wi-Fi, piscina, "
+                                + "mascotas, check-in y servicios del hotel.";
     return Map.of("answer", answer);
   }
 
@@ -953,7 +1237,11 @@ public class HotelController {
         r.getGuests(),
         r.getStatus(),
         r.getNotes(),
-        total);
+        total,
+        cancellationPolicy.rejection(r) == null,
+        cancellationPolicy.rejection(r),
+        cancellationPolicy.deadline(r),
+        cancellationPolicy.description());
   }
 
   private PublicUser publicUser(UserAccount u) {
@@ -962,7 +1250,7 @@ public class HotelController {
 
   private AuthResponse authResponse(UserAccount u) {
     var token = UUID.randomUUID().toString();
-    sessions.save(new AuthSession(token, u.getId(), LocalDateTime.now().plusHours(12)));
+    sessions.save(new AuthSession(token, u.getId(), LocalDateTime.now(clock).plusHours(12)));
     return new AuthResponse(publicUser(u), token);
   }
 
@@ -981,7 +1269,7 @@ public class HotelController {
     var session =
         sessions
             .findByToken(token)
-            .filter(s -> s.getExpiresAt().isAfter(LocalDateTime.now()))
+            .filter(s -> s.getExpiresAt().isAfter(LocalDateTime.now(clock)))
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "La sesión venció"));
     var user =
@@ -990,7 +1278,7 @@ public class HotelController {
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado"));
-    if (role != null && user.getRole() != role) {
+    if (user.getRole() == null || (role != null && user.getRole() != role)) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "El rol no permite esta acción");
     }
     return user;
@@ -998,7 +1286,7 @@ public class HotelController {
 
   private UserAccount requireStaff(String authorization) {
     var user = requireUser(authorization, null);
-    if (user.getRole() == Role.GUEST) {
+    if (user.getRole() != Role.EMPLOYEE && user.getRole() != Role.ADMIN) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "El rol no permite esta acción");
     }
     return user;
