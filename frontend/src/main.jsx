@@ -239,10 +239,22 @@ function Login({ onLogin }) {
         </div>
 
         <span className="bubble" style={{ width: 18, height: 18, left: '12%', top: '22%' }} />
-        <span className="bubble" style={{ width: 26, height: 26, left: '28%', top: '68%', animationDelay: '-2s' }} />
-        <span className="bubble" style={{ width: 14, height: 14, left: '54%', top: '18%', animationDelay: '-4s' }} />
-        <span className="bubble" style={{ width: 22, height: 22, left: '72%', top: '75%', animationDelay: '-1s' }} />
-        <span className="bubble" style={{ width: 16, height: 16, left: '86%', top: '40%', animationDelay: '-3s' }} />
+        <span
+          className="bubble"
+          style={{ width: 26, height: 26, left: '28%', top: '68%', animationDelay: '-2s' }}
+        />
+        <span
+          className="bubble"
+          style={{ width: 14, height: 14, left: '54%', top: '18%', animationDelay: '-4s' }}
+        />
+        <span
+          className="bubble"
+          style={{ width: 22, height: 22, left: '72%', top: '75%', animationDelay: '-1s' }}
+        />
+        <span
+          className="bubble"
+          style={{ width: 16, height: 16, left: '86%', top: '40%', animationDelay: '-3s' }}
+        />
       </section>
 
       <section className="login-panel">
@@ -260,7 +272,9 @@ function Login({ onLogin }) {
           <span className="eyebrow green">
             {mode === 'login' ? 'BIENVENIDO DE NUEVO' : 'CREA TU CUENTA'}
           </span>
-          <h1 style={{ textAlign: 'center' }}>{mode === 'login' ? 'Inicia sesión' : 'Únete al viaje'}</h1>
+          <h1 style={{ textAlign: 'center' }}>
+            {mode === 'login' ? 'Inicia sesión' : 'Únete al viaje'}
+          </h1>
           <p className="muted" style={{ textAlign: 'center' }}>
             {mode === 'login'
               ? 'Ingresa tus credenciales para continuar.'
@@ -378,8 +392,21 @@ function Login({ onLogin }) {
           )}
         </form>
 
-        <span className="bubble" style={{ width: 60, height: 60, right: '10%', top: '18%', opacity: 0.25 }} />
-        <span className="bubble" style={{ width: 40, height: 40, left: '8%', bottom: '12%', opacity: 0.2, animationDelay: '-2s' }} />
+        <span
+          className="bubble"
+          style={{ width: 60, height: 60, right: '10%', top: '18%', opacity: 0.25 }}
+        />
+        <span
+          className="bubble"
+          style={{
+            width: 40,
+            height: 40,
+            left: '8%',
+            bottom: '12%',
+            opacity: 0.2,
+            animationDelay: '-2s',
+          }}
+        />
       </section>
     </div>
   );
@@ -432,7 +459,9 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
       <a href="#main-content" className="skip-link">
         Ir al contenido principal
       </a>
-      {open && <div className="sidebar-overlay" onClick={() => setOpen(false)} aria-hidden="true" />}
+      {open && (
+        <div className="sidebar-overlay" onClick={() => setOpen(false)} aria-hidden="true" />
+      )}
       <aside className={open ? 'open' : ''} aria-label="Menú de navegación">
         <div className="brand light">
           <Logo light />
@@ -1790,7 +1819,10 @@ function AdminHome({ notify }) {
         <div>
           <span className="eyebrow">ADMINISTRACIÓN</span>
           <h1>Resumen operativo</h1>
-          <p>El pulso del hotel en tiempo real: ocupación, reservas, solicitudes y finanzas en una sola vista.</p>
+          <p>
+            El pulso del hotel en tiempo real: ocupación, reservas, solicitudes y finanzas en una
+            sola vista.
+          </p>
         </div>
         <span>
           {new Date().toLocaleDateString('es-CO', {
