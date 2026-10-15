@@ -24,6 +24,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/lindomar
       SPRING_DATASOURCE_USERNAME: lindomar
       SPRING_DATASOURCE_PASSWORD: lindomar
+      HOTEL_TIME_ZONE: ${HOTEL_TIME_ZONE:-America/Bogota}
+      HOTEL_CHECK_IN_TIME: ${HOTEL_CHECK_IN_TIME:-15:00}
+      HOTEL_CANCELLATION_ADVANCE_HOURS: ${HOTEL_CANCELLATION_ADVANCE_HOURS:-2}
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,7 +37,7 @@ services:
       retries: 12
       start_period: 30s
     ports:
-      - "8080:8080"
+      - "${BACKEND_PORT:-8080}:8080"
 
   frontend:
     build: ./frontend
@@ -43,13 +46,13 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 10s
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
 
 volumes:
   lindomar_data:

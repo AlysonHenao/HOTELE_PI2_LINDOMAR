@@ -26,11 +26,11 @@ docker info
 
 ### Paso a paso
 
-1. Cambiar a la rama del Sprint 1 y actualizarla:
+1. Cambiar a la rama del Sprint 2 y actualizarla:
 
    ```powershell
-   git switch Sprint1/Julian
-   git pull --ff-only origin Sprint1/Julian
+   git switch Sprint2/Julian
+   git pull --ff-only origin Sprint2/Julian
    ```
 
 2. Desde la carpeta raíz del repositorio, construir e iniciar todo. El comando
@@ -117,5 +117,21 @@ Este prototipo usa sesiones opacas y contraseñas protegidas con BCrypt. La auto
 - **HU-18:** estados `AVAILABLE`, `OCCUPIED`, `RESERVED`, `MAINTENANCE` y `OUT_OF_SERVICE`. El administrador puede cambiarlos desde el inventario o la edición. `PATCH /api/rooms/{id}/status` acepta `{"status":"RESERVED"}` y conserva las demás propiedades. Solo `AVAILABLE` aparece como reservable. `RESERVED` es un bloqueo operativo manual; las reservas con fechas siguen controlando sus propios cruces y no bloquean periodos futuros sin solapamiento.
 - El inicio actualiza la restricción de estados de PostgreSQL de volúmenes existentes, sin borrar sus datos. Habitaciones, usuarios, reservas administrativas, finanzas, recordatorios y dashboard requieren una sesión de administrador. Los huéspedes solo consultan/cancelan sus propias reservas y crean/consultan sus propias solicitudes; los empleados solo acceden a sus tareas.
 
-Pruebas: `cd backend && mvn verify`. Compilación frontend: `cd frontend && npm ci && npm run build`.
+### Sprint 2 — HU-25, HU-26, HU-27, HU-28 y HU-34
+
+- El administrador asigna tareas únicamente a cuentas de empleado, con campos y fecha límite validados.
+- Cada empleado consulta solo sus tareas e inicia una tarea pendiente antes de poder completarla.
+- La finalización registra la fecha y permite adjuntar una fotografía; no se puede completar una tarea ajena, pendiente o ya finalizada.
+- El tablero administrativo separa habitaciones disponibles, ocupadas, reservadas, en mantenimiento y fuera de servicio, y calcula una ocupación segura incluso sin habitaciones registradas.
+
+Calidad: `cd backend && mvn verify`. Frontend: `cd frontend && npm ci && npm run lint && npm run build`.
+
+### Sprint 2 — Julián Jiménez: HU-06, HU-11 y HU-24
+
+- **HU-06:** pantalla de detalles antes de reservar, con servicios, capacidad, piso, precio por noche, total y disponibilidad consultada para las fechas elegidas. Fotografía configurable desde administración y aviso cuando no está disponible.
+- **HU-11:** cancelación hasta antes del límite de **2 horas previas al check-in de las 15:00**, en `America/Bogota` (antes de las 13:00 del día de llegada). Solo reservas confirmadas, por su huésped o un administrador. Reembolso completo del importe registrado, una sola vez, conservando el historial. Las fechas se liberan sin quitar bloqueos operativos ni la ocupación de otra estadía.
+- **HU-24:** asignación de los roles huésped, empleado y administrador, con sus permisos visibles. Solo un administrador puede asignarlos; no puede cambiar su propio rol. Un cambio revoca las sesiones anteriores del usuario y los permisos se validan en el backend.
+- **Tareas automáticas:** cada reserva asigna la preparación de la habitación al empleado con menor carga abierta; cada transición real de ocupada a disponible asigna una tarea prioritaria de limpieza e inspección. Los eventos son idempotentes y no duplican tareas.
+
+Consulta [reglas, endpoints, pruebas y guion de demo del Sprint 2](docs/SPRINT2.md).
 

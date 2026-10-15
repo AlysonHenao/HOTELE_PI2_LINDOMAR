@@ -1,184 +1,805 @@
 package co.lindomar.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/** Define Domain para la gestión del hotel. */
 public final class Domain {
-    private Domain() {}
+  private Domain() {}
 
-    public enum Role { GUEST, EMPLOYEE, ADMIN }
-    public enum ReservationStatus { CONFIRMED, CHECKED_IN, COMPLETED, CANCELLED }
-    public enum TaskStatus { PENDING, IN_PROGRESS, DONE }
-    public enum RoomStatus { AVAILABLE, OCCUPIED, RESERVED, MAINTENANCE, OUT_OF_SERVICE }
-    public enum RequestStatus { OPEN, IN_PROGRESS, RESOLVED }
-    public enum EntryType { INCOME, EXPENSE }
+  /** Define Role para la gestión del hotel. */
+  public enum Role {
+    GUEST,
+    EMPLOYEE,
+    ADMIN
+  }
 
-    /** Sesión opaca persistida: el servidor, no el navegador, decide quién crea la reserva. */
-    @Entity @Table(name = "auth_sessions")
-    public static class AuthSession {
-        @Id private String token;
-        private Long userId;
-        private LocalDateTime expiresAt;
-        public AuthSession() {}
-        public AuthSession(String token, Long userId, LocalDateTime expiresAt){this.token=token;this.userId=userId;this.expiresAt=expiresAt;}
-        public String getToken(){return token;} public void setToken(String v){token=v;}
-        public Long getUserId(){return userId;} public void setUserId(Long v){userId=v;}
-        public LocalDateTime getExpiresAt(){return expiresAt;} public void setExpiresAt(LocalDateTime v){expiresAt=v;}
-    }
-    public enum ReminderStatus { PENDING, DONE }
+  /** Define ReservationStatus para la gestión del hotel. */
+  public enum ReservationStatus {
+    CONFIRMED,
+    CHECKED_IN,
+    COMPLETED,
+    CANCELLED
+  }
 
-    @Entity @Table(name = "users")
-    public static class UserAccount {
-        @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-        private String name;
-        @Column(unique = true, nullable = false) private String email;
-        @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
-        private String password;
-        @Enumerated(EnumType.STRING) private Role role;
-        private String phone;
-        public UserAccount() {}
-        public UserAccount(String name, String email, String password, Role role, String phone) { this.name=name; this.email=email; this.password=password; this.role=role; this.phone=phone; }
-        public Long getId(){return id;} public void setId(Long id){this.id=id;}
-        public String getName(){return name;} public void setName(String v){name=v;}
-        public String getEmail(){return email;} public void setEmail(String v){email=v;}
-        public String getPassword(){return password;} public void setPassword(String v){password=v;}
-        public Role getRole(){return role;} public void setRole(Role v){role=v;}
-        public String getPhone(){return phone;} public void setPhone(String v){phone=v;}
-    }
+  /** Define TaskStatus para la gestión del hotel. */
+  public enum TaskStatus {
+    PENDING,
+    IN_PROGRESS,
+    DONE
+  }
 
-    @Entity(name = "Room") @Table(name = "rooms")
-    public static class Room {
-        @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-        @Column(unique = true) private String number;
-        private int floor;
-        private String type;
-        private int capacity;
-        private BigDecimal price;
-        private boolean balcony;
-        private boolean petFriendly;
-        private String services;
-        @Enumerated(EnumType.STRING) private RoomStatus status;
-        public Room() {}
-        public Room(String number,int floor,String type,int capacity,BigDecimal price,boolean balcony,boolean petFriendly,String services,RoomStatus status){this.number=number;this.floor=floor;this.type=type;this.capacity=capacity;this.price=price;this.balcony=balcony;this.petFriendly=petFriendly;this.services=services;this.status=status;}
-        public Long getId(){return id;} public void setId(Long v){id=v;}
-        public String getNumber(){return number;} public void setNumber(String v){number=v;}
-        public int getFloor(){return floor;} public void setFloor(int v){floor=v;}
-        public String getType(){return type;} public void setType(String v){type=v;}
-        public int getCapacity(){return capacity;} public void setCapacity(int v){capacity=v;}
-        public BigDecimal getPrice(){return price;} public void setPrice(BigDecimal v){price=v;}
-        public boolean isBalcony(){return balcony;} public void setBalcony(boolean v){balcony=v;}
-        public boolean isPetFriendly(){return petFriendly;} public void setPetFriendly(boolean v){petFriendly=v;}
-        public String getServices(){return services;} public void setServices(String v){services=v;}
-        public RoomStatus getStatus(){return status;} public void setStatus(RoomStatus v){status=v;}
+  /** Define RoomStatus para la gestión del hotel. */
+  public enum RoomStatus {
+    AVAILABLE,
+    OCCUPIED,
+    RESERVED,
+    MAINTENANCE,
+    OUT_OF_SERVICE
+  }
+
+  /** Define RequestStatus para la gestión del hotel. */
+  public enum RequestStatus {
+    OPEN,
+    IN_PROGRESS,
+    RESOLVED
+  }
+
+  /** Define EntryType para la gestión del hotel. */
+  public enum EntryType {
+    INCOME,
+    EXPENSE
+  }
+
+  /** Sesión opaca persistida: el servidor, no el navegador, decide quién crea la reserva. */
+  @Entity
+  @Table(name = "auth_sessions")
+  public static class AuthSession {
+    @Id private String token;
+    private Long userId;
+    private LocalDateTime expiresAt;
+
+    public AuthSession() {}
+
+    /** Inicializa AuthSession para la gestión del hotel. */
+    public AuthSession(String token, Long userId, LocalDateTime expiresAt) {
+      this.token = token;
+      this.userId = userId;
+      this.expiresAt = expiresAt;
     }
 
-    @Entity @Table(name = "reservations")
-    public static class Reservation {
-        @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-        private Long guestId;
-        private Long roomId;
-        private LocalDate checkIn;
-        private LocalDate checkOut;
-        private int guests;
-        private BigDecimal amount;
-        @Enumerated(EnumType.STRING) private ReservationStatus status;
-        private String notes;
-        public Reservation() {}
-        public Long getId(){return id;} public void setId(Long v){id=v;}
-        public Long getGuestId(){return guestId;} public void setGuestId(Long v){guestId=v;}
-        public Long getRoomId(){return roomId;} public void setRoomId(Long v){roomId=v;}
-        public LocalDate getCheckIn(){return checkIn;} public void setCheckIn(LocalDate v){checkIn=v;}
-        public LocalDate getCheckOut(){return checkOut;} public void setCheckOut(LocalDate v){checkOut=v;}
-        public int getGuests(){return guests;} public void setGuests(int v){guests=v;}
-        public BigDecimal getAmount(){return amount;} public void setAmount(BigDecimal v){amount=v;}
-        public ReservationStatus getStatus(){return status;} public void setStatus(ReservationStatus v){status=v;}
-        public String getNotes(){return notes;} public void setNotes(String v){notes=v;}
+    public String getToken() {
+      return token;
     }
 
-    @Entity @Table(name = "service_requests")
-    public static class ServiceRequest {
-        @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-        private Long guestId;
-        private String roomNumber;
-        private String category;
-        @Column(length=1200) private String notes;
-        @Enumerated(EnumType.STRING) private RequestStatus status;
-        private LocalDateTime createdAt;
-        public ServiceRequest() {}
-        public Long getId(){return id;} public void setId(Long v){id=v;}
-        public Long getGuestId(){return guestId;} public void setGuestId(Long v){guestId=v;}
-        public String getRoomNumber(){return roomNumber;} public void setRoomNumber(String v){roomNumber=v;}
-        public String getCategory(){return category;} public void setCategory(String v){category=v;}
-        public String getNotes(){return notes;} public void setNotes(String v){notes=v;}
-        public RequestStatus getStatus(){return status;} public void setStatus(RequestStatus v){status=v;}
-        public LocalDateTime getCreatedAt(){return createdAt;} public void setCreatedAt(LocalDateTime v){createdAt=v;}
+    public void setToken(String v) {
+      token = v;
     }
 
-    @Entity @Table(name = "staff_tasks")
-    public static class StaffTask {
-        @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-        private Long employeeId;
-        private String title;
-        @Column(length=1200) private String description;
-        @Enumerated(EnumType.STRING) private TaskStatus status;
-        private LocalDate dueDate;
-        private String priority;
-        @JsonIgnore @Column(columnDefinition="bytea") private byte[] completionPhoto;
-        private String completionPhotoName;
-        private String completionPhotoContentType;
-        private LocalDateTime completedAt;
-        public StaffTask() {}
-        public StaffTask(Long employeeId,String title,String description,TaskStatus status,LocalDate dueDate,String priority){this.employeeId=employeeId;this.title=title;this.description=description;this.status=status;this.dueDate=dueDate;this.priority=priority;}
-        public Long getId(){return id;} public void setId(Long v){id=v;}
-        public Long getEmployeeId(){return employeeId;} public void setEmployeeId(Long v){employeeId=v;}
-        public String getTitle(){return title;} public void setTitle(String v){title=v;}
-        public String getDescription(){return description;} public void setDescription(String v){description=v;}
-        public TaskStatus getStatus(){return status;} public void setStatus(TaskStatus v){status=v;}
-        public LocalDate getDueDate(){return dueDate;} public void setDueDate(LocalDate v){dueDate=v;}
-        public String getPriority(){return priority;} public void setPriority(String v){priority=v;}
-        public byte[] getCompletionPhoto(){return completionPhoto;} public void setCompletionPhoto(byte[] v){completionPhoto=v;}
-        public String getCompletionPhotoName(){return completionPhotoName;} public void setCompletionPhotoName(String v){completionPhotoName=v;}
-        public String getCompletionPhotoContentType(){return completionPhotoContentType;} public void setCompletionPhotoContentType(String v){completionPhotoContentType=v;}
-        public LocalDateTime getCompletedAt(){return completedAt;} public void setCompletedAt(LocalDateTime v){completedAt=v;}
-        @Transient public boolean getHasCompletionPhoto(){return completionPhoto!=null&&completionPhoto.length>0;}
+    public Long getUserId() {
+      return userId;
     }
 
-    @Entity @Table(name = "finance_entries")
-    public static class FinanceEntry {
-        @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-        @Enumerated(EnumType.STRING) private EntryType type;
-        private String concept;
-        private BigDecimal amount;
-        private LocalDate date;
-        public FinanceEntry() {}
-        public FinanceEntry(EntryType type,String concept,BigDecimal amount,LocalDate date){this.type=type;this.concept=concept;this.amount=amount;this.date=date;}
-        public Long getId(){return id;} public void setId(Long v){id=v;}
-        public EntryType getType(){return type;} public void setType(EntryType v){type=v;}
-        public String getConcept(){return concept;} public void setConcept(String v){concept=v;}
-        public BigDecimal getAmount(){return amount;} public void setAmount(BigDecimal v){amount=v;}
-        public LocalDate getDate(){return date;} public void setDate(LocalDate v){date=v;}
+    public void setUserId(Long v) {
+      userId = v;
     }
 
-    /** HU-15: recordatorios programados de gastos necesarios del hotel. */
-    @Entity @Table(name = "expense_reminders")
-    public static class ExpenseReminder {
-        @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-        private String concept;
-        private String category;
-        private BigDecimal estimatedAmount;
-        private LocalDate dueDate;
-        @Enumerated(EnumType.STRING) private ReminderStatus status;
-        public ExpenseReminder() {}
-        public ExpenseReminder(String concept,String category,BigDecimal estimatedAmount,LocalDate dueDate,ReminderStatus status){this.concept=concept;this.category=category;this.estimatedAmount=estimatedAmount;this.dueDate=dueDate;this.status=status;}
-        public Long getId(){return id;} public void setId(Long v){id=v;}
-        public String getConcept(){return concept;} public void setConcept(String v){concept=v;}
-        public String getCategory(){return category;} public void setCategory(String v){category=v;}
-        public BigDecimal getEstimatedAmount(){return estimatedAmount;} public void setEstimatedAmount(BigDecimal v){estimatedAmount=v;}
-        public LocalDate getDueDate(){return dueDate;} public void setDueDate(LocalDate v){dueDate=v;}
-        public ReminderStatus getStatus(){return status;} public void setStatus(ReminderStatus v){status=v;}
+    public LocalDateTime getExpiresAt() {
+      return expiresAt;
     }
+
+    public void setExpiresAt(LocalDateTime v) {
+      expiresAt = v;
+    }
+  }
+
+  /** Define ReminderStatus para la gestión del hotel. */
+  public enum ReminderStatus {
+    PENDING,
+    DONE
+  }
+
+  /** Define UserAccount para la gestión del hotel. */
+  @Entity(name = "UserAccount")
+  @Table(name = "users")
+  public static class UserAccount {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    @Column(unique = true, nullable = false)
+    private String email;
+
+    @com.fasterxml.jackson.annotation.JsonProperty(
+        access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
+    private String password;
+
+    @Enumerated(EnumType.STRING)
+    private Role role;
+
+    private String phone;
+
+    public UserAccount() {}
+
+    /** Inicializa UserAccount para la gestión del hotel. */
+    public UserAccount(String name, String email, String password, Role role, String phone) {
+      this.name = name;
+      this.email = email;
+      this.password = password;
+      this.role = role;
+      this.phone = phone;
+    }
+
+    public Long getId() {
+      return id;
+    }
+
+    public void setId(Long id) {
+      this.id = id;
+    }
+
+    public String getName() {
+      return name;
+    }
+
+    public void setName(String v) {
+      name = v;
+    }
+
+    public String getEmail() {
+      return email;
+    }
+
+    public void setEmail(String v) {
+      email = v;
+    }
+
+    public String getPassword() {
+      return password;
+    }
+
+    public void setPassword(String v) {
+      password = v;
+    }
+
+    public Role getRole() {
+      return role;
+    }
+
+    public void setRole(Role v) {
+      role = v;
+    }
+
+    public String getPhone() {
+      return phone;
+    }
+
+    public void setPhone(String v) {
+      phone = v;
+    }
+  }
+
+  /** Define Room para la gestión del hotel. */
+  @Entity(name = "Room")
+  @Table(name = "rooms")
+  public static class Room {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(unique = true)
+    private String number;
+
+    private int floor;
+    private String type;
+    private int capacity;
+    private BigDecimal price;
+    private boolean balcony;
+    private boolean petFriendly;
+    private String services;
+
+    @Column(length = 2048)
+    private String imageUrl;
+
+    @Enumerated(EnumType.STRING)
+    private RoomStatus status;
+
+    public Room() {}
+
+    /** Inicializa Room para la gestión del hotel. */
+    public Room(
+        String number,
+        int floor,
+        String type,
+        int capacity,
+        BigDecimal price,
+        boolean balcony,
+        boolean petFriendly,
+        String services,
+        RoomStatus status) {
+      this.number = number;
+      this.floor = floor;
+      this.type = type;
+      this.capacity = capacity;
+      this.price = price;
+      this.balcony = balcony;
+      this.petFriendly = petFriendly;
+      this.services = services;
+      this.status = status;
+    }
+
+    public Long getId() {
+      return id;
+    }
+
+    public void setId(Long v) {
+      id = v;
+    }
+
+    public String getNumber() {
+      return number;
+    }
+
+    public void setNumber(String v) {
+      number = v;
+    }
+
+    public int getFloor() {
+      return floor;
+    }
+
+    public void setFloor(int v) {
+      floor = v;
+    }
+
+    public String getType() {
+      return type;
+    }
+
+    public void setType(String v) {
+      type = v;
+    }
+
+    public int getCapacity() {
+      return capacity;
+    }
+
+    public void setCapacity(int v) {
+      capacity = v;
+    }
+
+    public BigDecimal getPrice() {
+      return price;
+    }
+
+    public void setPrice(BigDecimal v) {
+      price = v;
+    }
+
+    public boolean isBalcony() {
+      return balcony;
+    }
+
+    public void setBalcony(boolean v) {
+      balcony = v;
+    }
+
+    public boolean isPetFriendly() {
+      return petFriendly;
+    }
+
+    public void setPetFriendly(boolean v) {
+      petFriendly = v;
+    }
+
+    public String getServices() {
+      return services;
+    }
+
+    public void setServices(String v) {
+      services = v;
+    }
+
+    public String getImageUrl() {
+      return imageUrl;
+    }
+
+    public void setImageUrl(String v) {
+      imageUrl = v;
+    }
+
+    public RoomStatus getStatus() {
+      return status;
+    }
+
+    public void setStatus(RoomStatus v) {
+      status = v;
+    }
+  }
+
+  /** Define Reservation para la gestión del hotel. */
+  @Entity(name = "Reservation")
+  @Table(name = "reservations")
+  public static class Reservation {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private Long guestId;
+    private Long roomId;
+    private LocalDate checkIn;
+    private LocalDate checkOut;
+    private int guests;
+    private BigDecimal amount;
+
+    @Enumerated(EnumType.STRING)
+    private ReservationStatus status;
+
+    private String notes;
+
+    public Reservation() {}
+
+    public Long getId() {
+      return id;
+    }
+
+    public void setId(Long v) {
+      id = v;
+    }
+
+    public Long getGuestId() {
+      return guestId;
+    }
+
+    public void setGuestId(Long v) {
+      guestId = v;
+    }
+
+    public Long getRoomId() {
+      return roomId;
+    }
+
+    public void setRoomId(Long v) {
+      roomId = v;
+    }
+
+    public LocalDate getCheckIn() {
+      return checkIn;
+    }
+
+    public void setCheckIn(LocalDate v) {
+      checkIn = v;
+    }
+
+    public LocalDate getCheckOut() {
+      return checkOut;
+    }
+
+    public void setCheckOut(LocalDate v) {
+      checkOut = v;
+    }
+
+    public int getGuests() {
+      return guests;
+    }
+
+    public void setGuests(int v) {
+      guests = v;
+    }
+
+    public BigDecimal getAmount() {
+      return amount;
+    }
+
+    public void setAmount(BigDecimal v) {
+      amount = v;
+    }
+
+    public ReservationStatus getStatus() {
+      return status;
+    }
+
+    public void setStatus(ReservationStatus v) {
+      status = v;
+    }
+
+    public String getNotes() {
+      return notes;
+    }
+
+    public void setNotes(String v) {
+      notes = v;
+    }
+  }
+
+  /** Define ServiceRequest para la gestión del hotel. */
+  @Entity
+  @Table(name = "service_requests")
+  public static class ServiceRequest {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private Long guestId;
+    private String roomNumber;
+    private String category;
+
+    @Column(length = 1200)
+    private String notes;
+
+    @Enumerated(EnumType.STRING)
+    private RequestStatus status;
+
+    private LocalDateTime createdAt;
+
+    public ServiceRequest() {}
+
+    public Long getId() {
+      return id;
+    }
+
+    public void setId(Long v) {
+      id = v;
+    }
+
+    public Long getGuestId() {
+      return guestId;
+    }
+
+    public void setGuestId(Long v) {
+      guestId = v;
+    }
+
+    public String getRoomNumber() {
+      return roomNumber;
+    }
+
+    public void setRoomNumber(String v) {
+      roomNumber = v;
+    }
+
+    public String getCategory() {
+      return category;
+    }
+
+    public void setCategory(String v) {
+      category = v;
+    }
+
+    public String getNotes() {
+      return notes;
+    }
+
+    public void setNotes(String v) {
+      notes = v;
+    }
+
+    public RequestStatus getStatus() {
+      return status;
+    }
+
+    public void setStatus(RequestStatus v) {
+      status = v;
+    }
+
+    public LocalDateTime getCreatedAt() {
+      return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime v) {
+      createdAt = v;
+    }
+  }
+
+  /** Define StaffTask para la gestión del hotel. */
+  @Entity
+  @Table(name = "staff_tasks")
+  public static class StaffTask {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private Long employeeId;
+    private String title;
+
+    @Column(length = 1200)
+    private String description;
+
+    @Enumerated(EnumType.STRING)
+    private TaskStatus status;
+
+    private LocalDate dueDate;
+    private String priority;
+
+    @JsonIgnore
+    @Column(unique = true, length = 160)
+    private String eventKey;
+
+    @JsonIgnore
+    @Column(columnDefinition = "bytea")
+    private byte[] completionPhoto;
+
+    private String completionPhotoName;
+    private String completionPhotoContentType;
+    private LocalDateTime completedAt;
+
+    public StaffTask() {}
+
+    /** Inicializa StaffTask para la gestión del hotel. */
+    public StaffTask(
+        Long employeeId,
+        String title,
+        String description,
+        TaskStatus status,
+        LocalDate dueDate,
+        String priority) {
+      this.employeeId = employeeId;
+      this.title = title;
+      this.description = description;
+      this.status = status;
+      this.dueDate = dueDate;
+      this.priority = priority;
+    }
+
+    public Long getId() {
+      return id;
+    }
+
+    public void setId(Long v) {
+      id = v;
+    }
+
+    public Long getEmployeeId() {
+      return employeeId;
+    }
+
+    public void setEmployeeId(Long v) {
+      employeeId = v;
+    }
+
+    public String getTitle() {
+      return title;
+    }
+
+    public void setTitle(String v) {
+      title = v;
+    }
+
+    public String getDescription() {
+      return description;
+    }
+
+    public void setDescription(String v) {
+      description = v;
+    }
+
+    public TaskStatus getStatus() {
+      return status;
+    }
+
+    public void setStatus(TaskStatus v) {
+      status = v;
+    }
+
+    public LocalDate getDueDate() {
+      return dueDate;
+    }
+
+    public void setDueDate(LocalDate v) {
+      dueDate = v;
+    }
+
+    public String getPriority() {
+      return priority;
+    }
+
+    public void setPriority(String v) {
+      priority = v;
+    }
+
+    public String getEventKey() {
+      return eventKey;
+    }
+
+    public void setEventKey(String v) {
+      eventKey = v;
+    }
+
+    public byte[] getCompletionPhoto() {
+      return completionPhoto;
+    }
+
+    public void setCompletionPhoto(byte[] v) {
+      completionPhoto = v;
+    }
+
+    public String getCompletionPhotoName() {
+      return completionPhotoName;
+    }
+
+    public void setCompletionPhotoName(String v) {
+      completionPhotoName = v;
+    }
+
+    public String getCompletionPhotoContentType() {
+      return completionPhotoContentType;
+    }
+
+    public void setCompletionPhotoContentType(String v) {
+      completionPhotoContentType = v;
+    }
+
+    public LocalDateTime getCompletedAt() {
+      return completedAt;
+    }
+
+    public void setCompletedAt(LocalDateTime v) {
+      completedAt = v;
+    }
+
+    @Transient
+    public boolean getHasCompletionPhoto() {
+      return completionPhoto != null && completionPhoto.length > 0;
+    }
+  }
+
+  /** Define FinanceEntry para la gestión del hotel. */
+  @Entity
+  @Table(name = "finance_entries")
+  public static class FinanceEntry {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Enumerated(EnumType.STRING)
+    private EntryType type;
+
+    private String concept;
+    private BigDecimal amount;
+    private LocalDate date;
+
+    public FinanceEntry() {}
+
+    /** Inicializa FinanceEntry para la gestión del hotel. */
+    public FinanceEntry(EntryType type, String concept, BigDecimal amount, LocalDate date) {
+      this.type = type;
+      this.concept = concept;
+      this.amount = amount;
+      this.date = date;
+    }
+
+    public Long getId() {
+      return id;
+    }
+
+    public void setId(Long v) {
+      id = v;
+    }
+
+    public EntryType getType() {
+      return type;
+    }
+
+    public void setType(EntryType v) {
+      type = v;
+    }
+
+    public String getConcept() {
+      return concept;
+    }
+
+    public void setConcept(String v) {
+      concept = v;
+    }
+
+    public BigDecimal getAmount() {
+      return amount;
+    }
+
+    public void setAmount(BigDecimal v) {
+      amount = v;
+    }
+
+    public LocalDate getDate() {
+      return date;
+    }
+
+    public void setDate(LocalDate v) {
+      date = v;
+    }
+  }
+
+  /** HU-15: recordatorios programados de gastos necesarios del hotel. */
+  @Entity
+  @Table(name = "expense_reminders")
+  public static class ExpenseReminder {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String concept;
+    private String category;
+    private BigDecimal estimatedAmount;
+    private LocalDate dueDate;
+
+    @Enumerated(EnumType.STRING)
+    private ReminderStatus status;
+
+    public ExpenseReminder() {}
+
+    /** Inicializa ExpenseReminder para la gestión del hotel. */
+    public ExpenseReminder(
+        String concept,
+        String category,
+        BigDecimal estimatedAmount,
+        LocalDate dueDate,
+        ReminderStatus status) {
+      this.concept = concept;
+      this.category = category;
+      this.estimatedAmount = estimatedAmount;
+      this.dueDate = dueDate;
+      this.status = status;
+    }
+
+    public Long getId() {
+      return id;
+    }
+
+    public void setId(Long v) {
+      id = v;
+    }
+
+    public String getConcept() {
+      return concept;
+    }
+
+    public void setConcept(String v) {
+      concept = v;
+    }
+
+    public String getCategory() {
+      return category;
+    }
+
+    public void setCategory(String v) {
+      category = v;
+    }
+
+    public BigDecimal getEstimatedAmount() {
+      return estimatedAmount;
+    }
+
+    public void setEstimatedAmount(BigDecimal v) {
+      estimatedAmount = v;
+    }
+
+    public LocalDate getDueDate() {
+      return dueDate;
+    }
+
+    public void setDueDate(LocalDate v) {
+      dueDate = v;
+    }
+
+    public ReminderStatus getStatus() {
+      return status;
+    }
+
+    public void setStatus(ReminderStatus v) {
+      status = v;
+    }
+  }
 }
-
