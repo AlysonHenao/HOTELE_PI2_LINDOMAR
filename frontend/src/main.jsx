@@ -1054,10 +1054,13 @@ function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
                 <span>Sin servicios adicionales registrados</span>
               )}
             </div>
-            <p>
+            <p className="room-stay-dates">
               {fmtDate(dates.checkIn)} — {fmtDate(dates.checkOut)} · {detail.nights} noche(s)
             </p>
-            <p role="status" className={detail.available ? 'positive' : 'form-error'}>
+            <p
+              role="status"
+              className={`room-availability ${detail.available ? 'positive' : 'form-error'}`}
+            >
               {detail.available
                 ? 'Disponible para las fechas seleccionadas'
                 : 'No disponible para las fechas seleccionadas'}
@@ -2465,8 +2468,14 @@ function AdminUsers({ currentUser, notify }) {
       )}
       <div className="permission-grid">
         {Object.entries(roles).map(([role, permissions]) => (
-          <section className="panel" key={role}>
-            <h3>{label[role]}</h3>
+          <section className={`panel permission-card role-${role.toLowerCase()}`} key={role}>
+            <header>
+              <span aria-hidden="true">{label[role]?.charAt(0)}</span>
+              <div>
+                <small>PERFIL DEL SISTEMA</small>
+                <h3>{label[role]}</h3>
+              </div>
+            </header>
             <ul>
               {permissions.map((p) => (
                 <li key={p}>{p}</li>
@@ -2477,7 +2486,7 @@ function AdminUsers({ currentUser, notify }) {
       </div>
       <div className="user-grid">
         {users.map((u) => (
-          <article key={u.id}>
+          <article className="user-card" key={u.id}>
             <div className="avatar large">{initials(u.name)}</div>
             <div>
               <h3>{u.name}</h3>
