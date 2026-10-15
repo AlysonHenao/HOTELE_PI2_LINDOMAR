@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240" fill="none">
+  <defs>
+    <linearGradient id="crownGrad" x1="100" y1="0" x2="100" y2="70" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4ECDC4"/>
+      <stop offset="100%" stop-color="#0B4F6C"/>
+    </linearGradient>
+    <linearGradient id="ringGrad" x1="100" y1="90" x2="100" y2="230" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4ECDC4"/>
+      <stop offset="100%" stop-color="#073B4C"/>
+    </linearGradient>
+  </defs>
+  <!-- Corona -->
+  <path d="M100 4 L112 28 L136 18 L130 44 L156 48 L136 66 L160 82 L132 86 L140 112 L116 98 L100 120 L84 98 L60 112 L68 86 L40 82 L64 66 L44 48 L70 44 L64 18 L88 28 Z" fill="url(#crownGrad)"/>
+  <circle cx="100" cy="56" r="5" fill="#F7F3E8"/>
+  <circle cx="76" cy="52" r="3.5" fill="#F7F3E8"/>
+  <circle cx="124" cy="52" r="3.5" fill="#F7F3E8"/>
+  <!-- Anillos -->
+  <circle cx="100" cy="160" r="72" stroke="url(#ringGrad)" stroke-width="10"/>
+  <circle cx="100" cy="160" r="58" stroke="url(#ringGrad)" stroke-width="4" opacity="0.85"/>
+  <!-- HL -->
+  <text x="100" y="178" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="62" fill="#0B4F6C" letter-spacing="-2">HL</text>
+</svg>
