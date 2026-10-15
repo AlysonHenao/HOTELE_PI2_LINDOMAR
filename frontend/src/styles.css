@@ -1658,8 +1658,7 @@ select {
   gap: 12px;
   color: var(--muted);
   background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.72), transparent 64%),
-    var(--bg-sunken);
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.72), transparent 64%), var(--bg-sunken);
 }
 .room-photo-placeholder svg {
   color: var(--ink-soft);
