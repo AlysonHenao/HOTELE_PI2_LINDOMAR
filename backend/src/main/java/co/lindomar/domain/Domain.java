@@ -723,7 +723,7 @@ public final class Domain {
   }
 
   /** HU-15: recordatorios programados de gastos necesarios del hotel. */
-  @Entity
+  @Entity(name = "ExpenseReminder")
   @Table(name = "expense_reminders")
   public static class ExpenseReminder {
     @Id
@@ -734,6 +734,9 @@ public final class Domain {
     private String category;
     private BigDecimal estimatedAmount;
     private LocalDate dueDate;
+
+    @Column(unique = true)
+    private Long paymentEntryId;
 
     @Enumerated(EnumType.STRING)
     private ReminderStatus status;
@@ -796,6 +799,14 @@ public final class Domain {
 
     public ReminderStatus getStatus() {
       return status;
+    }
+
+    public Long getPaymentEntryId() {
+      return paymentEntryId;
+    }
+
+    public void setPaymentEntryId(Long v) {
+      paymentEntryId = v;
     }
 
     public void setStatus(ReminderStatus v) {

@@ -2,6 +2,8 @@
 
 MVP de gestión hotelera con tres experiencias: huésped, empleado y administrador.
 
+Para instalar y probar la versión actual desde cero, sigue [la guía de ejecución y pruebas](README_PRUEBAS.md), con cuentas de demo, recorridos del Sprint 2 y solución de problemas.
+
 ## Ejecutar con Docker
 
 Docker Compose levanta PostgreSQL, la API de Spring Boot y el frontend. No es
@@ -26,11 +28,11 @@ docker info
 
 ### Paso a paso
 
-1. Cambiar a la rama del Sprint 2 y actualizarla:
+1. Cambiar a la rama principal y actualizarla:
 
    ```powershell
-   git switch Sprint2/Julian
-   git pull --ff-only origin Sprint2/Julian
+   git switch main
+   git pull --ff-only origin main
    ```
 
 2. Desde la carpeta raíz del repositorio, construir e iniciar todo. El comando
@@ -133,5 +135,22 @@ Calidad: `cd backend && mvn verify`. Frontend: `cd frontend && npm ci && npm run
 - **HU-24:** asignación de los roles huésped, empleado y administrador, con sus permisos visibles. Solo un administrador puede asignarlos; no puede cambiar su propio rol. Un cambio revoca las sesiones anteriores del usuario y los permisos se validan en el backend.
 - **Tareas automáticas:** cada reserva asigna la preparación de la habitación al empleado con menor carga abierta; cada transición real de ocupada a disponible asigna una tarea prioritaria de limpieza e inspección. Los eventos son idempotentes y no duplican tareas.
 
-Consulta [reglas, endpoints, pruebas y guion de demo del Sprint 2](docs/SPRINT2.md).
+Consulta la [Wiki del Sprint 2](https://github.com/AlysonHenao/HOTELE_PI2_LINDOMAR/wiki/Sprint-2).
+
+### Sprint 3 — trabajo de Julián
+
+- Finanzas: validación de valores positivos, campos obligatorios y fechas en el servidor.
+  Los pagos repetidos o simultáneos de un recordatorio conservan un único gasto.
+- Formularios: errores visibles, confirmación de pago y protección ante clics repetidos.
+- AWS EC2: flujo preparado para desplegar después de CI exitoso en `main`, con imágenes
+  ECR, OIDC, SSM, HTTPS y copia previa de la base de datos. **Pendiente de configurar
+  la instancia, región, dominio y permisos; todavía no hay URL pública verificada.**
+- [Seguimiento, pruebas y documentación del Sprint 3](docs/sprint3/README.md).
+- [Manual del administrador](docs/sprint3/MANUAL-ADMINISTRADOR.md),
+  [preparación de usabilidad](docs/sprint3/USABILIDAD.md),
+  [presupuesto operativo](docs/sprint3/PRESUPUESTO-OPERACION.md) y
+  [guía de despliegue AWS](docs/sprint3/DESPLIEGUE-AWS.md).
+
+Estos documentos se preparan también como secciones de la Wiki para la entrega.
+Los resultados de usuarios y el despliegue deben completarse con evidencias reales.
 

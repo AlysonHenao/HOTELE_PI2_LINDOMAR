@@ -67,7 +67,8 @@ const money = (v) =>
   new Intl.NumberFormat('es-CO', {
     style: 'currency',
     currency: 'COP',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(v || 0);
 const label = {
   GUEST: 'Huésped',
@@ -110,6 +111,34 @@ const initials = (name) =>
     .join('');
 /** Días restantes hasta una fecha; negativo si ya venció. */
 const daysUntil = (d) => Math.ceil((new Date(`${d}T12:00:00`) - new Date()) / 86400000);
+
+/** Bloquea clics repetidos y conserva un error visible cuando falla un pago. */
+function useReminderPayment(notify, reload) {
+  const lock = useRef(false);
+  const [payingId, setPayingId] = useState(null);
+  const [paymentError, setPaymentError] = useState('');
+  const pay = async (reminder) => {
+    if (lock.current) return;
+    if (
+      !confirm(`¿Registrar el gasto de ${money(reminder.estimatedAmount)} por ${reminder.concept}?`)
+    )
+      return;
+    lock.current = true;
+    setPayingId(reminder.id);
+    setPaymentError('');
+    try {
+      await api(`/reminders/${reminder.id}/pay`, { method: 'POST' });
+      notify('Gasto registrado y descontado del balance');
+      await reload();
+    } catch (error) {
+      setPaymentError(error.message);
+    } finally {
+      lock.current = false;
+      setPayingId(null);
+    }
+  };
+  return { pay, payingId, paymentError };
+}
 
 function Logo({ className = '', light = false }) {
   return (
@@ -1788,14 +1817,27 @@ function Admin({ page, user, notify, onChange }) {
 function AdminHome({ notify }) {
   const [d, setD] = useState(null);
   const [reminders, setReminders] = useState([]);
-  const load = () => {
-    api('/dashboard').then(setD);
-    api('/reminders').then(setReminders);
-  };
+  const [loadError, setLoadError] = useState('');
+  const load = () =>
+    Promise.all([api('/dashboard'), api('/reminders')])
+      .then(([dashboard, scheduled]) => {
+        setD(dashboard);
+        setReminders(scheduled);
+        setLoadError('');
+      })
+      .catch((error) => setLoadError(error.message));
   useEffect(() => {
     load();
   }, []);
-  if (!d) return <div className="loader">Cargando indicadores…</div>;
+  const { pay, payingId, paymentError } = useReminderPayment(notify, load);
+  if (!d)
+    return loadError ? (
+      <p className="form-error" role="alert">
+        {loadError}
+      </p>
+    ) : (
+      <div className="loader">Cargando indicadores…</div>
+    );
 
   const occupancy = Number.isFinite(d.occupancyRate) ? d.occupancyRate : 0;
   const roomBreakdown = [
@@ -1806,12 +1848,6 @@ function AdminHome({ notify }) {
     ['out-of-service', 'fuera de servicio', d.outOfService],
   ];
   const pending = reminders.filter((r) => r.status === 'PENDING');
-
-  const pay = async (r) => {
-    await api(`/reminders/${r.id}/pay`, { method: 'POST' });
-    notify('Gasto registrado y descontado del balance');
-    load();
-  };
 
   return (
     <>
@@ -1905,6 +1941,16 @@ function AdminHome({ notify }) {
           </span>
         )}
       </div>
+      {loadError && (
+        <p className="form-error" role="alert">
+          {loadError}
+        </p>
+      )}
+      {paymentError && (
+        <p className="form-error" role="alert">
+          {paymentError}
+        </p>
+      )}
       <div className="reminder-list">
         {pending.map((r) => {
           const days = daysUntil(r.dueDate);
@@ -1923,8 +1969,8 @@ function AdminHome({ notify }) {
                       : `en ${days} día(s)`}
                 </small>
               </div>
-              <button className="secondary" onClick={() => pay(r)}>
-                Registrar gasto
+              <button className="secondary" disabled={payingId !== null} onClick={() => pay(r)}>
+                {payingId === r.id ? 'Registrando…' : 'Registrar gasto'}
               </button>
             </div>
           );
@@ -2348,7 +2394,7 @@ function AdminReservations({ notify }) {
           />
         </label>
         <button
-          className="ghost"
+          className="secondary"
           onClick={() => setFilters({ query: '', status: 'ALL', from: '', to: '' })}
         >
           Limpiar
@@ -2786,6 +2832,9 @@ function Finance({ notify }) {
   const [reminders, setReminders] = useState([]);
   const [show, setShow] = useState(false);
   const [showReminder, setShowReminder] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const saveLock = useRef(false);
   const [form, setForm] = useState({ type: 'INCOME', concept: '', amount: '', date: today() });
   const [reminderForm, setReminderForm] = useState({
     concept: '',
@@ -2794,42 +2843,75 @@ function Finance({ notify }) {
     dueDate: future(7),
   });
 
-  const load = () => {
-    api('/finance').then(setEntries);
-    api('/reminders').then(setReminders);
-  };
+  const load = () =>
+    Promise.all([api('/finance'), api('/reminders')])
+      .then(([movements, scheduled]) => {
+        setEntries(movements);
+        setReminders(scheduled);
+      })
+      .catch((err) => setError(err.message));
   useEffect(() => {
     load();
   }, []);
 
   const create = async (e) => {
     e.preventDefault();
-    await api('/finance', {
-      method: 'POST',
-      body: JSON.stringify({ ...form, amount: Number(form.amount) }),
-    });
-    setShow(false);
-    notify('Movimiento financiero registrado');
-    load();
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await api('/finance', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...form,
+          concept: form.concept.trim(),
+          amount: Number(form.amount),
+        }),
+      });
+      setShow(false);
+      setForm({ type: 'INCOME', concept: '', amount: '', date: today() });
+      notify('Movimiento financiero registrado');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
   };
   const createReminder = async (e) => {
     e.preventDefault();
-    await api('/reminders', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...reminderForm,
-        estimatedAmount: Number(reminderForm.estimatedAmount),
-      }),
-    });
-    setShowReminder(false);
-    notify('Recordatorio programado');
-    load();
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await api('/reminders', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...reminderForm,
+          concept: reminderForm.concept.trim(),
+          estimatedAmount: Number(reminderForm.estimatedAmount),
+        }),
+      });
+      setShowReminder(false);
+      setReminderForm({
+        concept: '',
+        category: 'Insumos',
+        estimatedAmount: '',
+        dueDate: future(7),
+      });
+      notify('Recordatorio programado');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
   };
-  const pay = async (r) => {
-    await api(`/reminders/${r.id}/pay`, { method: 'POST' });
-    notify('Gasto registrado y descontado del balance');
-    load();
-  };
+  const { pay, payingId, paymentError } = useReminderPayment(notify, load);
 
   const income = entries
     .filter((e) => e.type === 'INCOME')
@@ -2846,11 +2928,22 @@ function Finance({ notify }) {
           <h3>Control financiero</h3>
           <p className="muted">Ingresos, gastos y balance del hotel.</p>
         </div>
-        <button className="primary" onClick={() => setShow(true)}>
+        <button
+          className="primary"
+          onClick={() => {
+            setError('');
+            setShow(true);
+          }}
+        >
           <Plus size={17} />
           Nuevo movimiento
         </button>
       </div>
+      {error && !show && !showReminder && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="metric-grid three">
         <Metric
           icon={TrendingUp}
@@ -2877,11 +2970,22 @@ function Finance({ notify }) {
           <h3>Gastos programados</h3>
           <p className="muted">Recordatorios de pagos y compras necesarias.</p>
         </div>
-        <button className="secondary" onClick={() => setShowReminder(true)}>
+        <button
+          className="secondary"
+          onClick={() => {
+            setError('');
+            setShowReminder(true);
+          }}
+        >
           <Plus size={17} />
           Programar gasto
         </button>
       </div>
+      {paymentError && (
+        <p className="form-error" role="alert">
+          {paymentError}
+        </p>
+      )}
       <div className="reminder-list">
         {pending.map((r) => {
           const days = daysUntil(r.dueDate);
@@ -2894,8 +2998,8 @@ function Finance({ notify }) {
                   {r.category} · {money(r.estimatedAmount)} · vence {fmtDate(r.dueDate)}
                 </small>
               </div>
-              <button className="secondary" onClick={() => pay(r)}>
-                Registrar gasto
+              <button className="secondary" disabled={payingId !== null} onClick={() => pay(r)}>
+                {payingId === r.id ? 'Registrando…' : 'Registrar gasto'}
               </button>
             </div>
           );
@@ -2955,6 +3059,11 @@ function Finance({ notify }) {
             </button>
             <span className="eyebrow green">MOVIMIENTO</span>
             <h2>Registrar movimiento</h2>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
             <label>
               Tipo
               <select
@@ -2969,6 +3078,8 @@ function Finance({ notify }) {
               Concepto
               <input
                 value={form.concept}
+                maxLength={255}
+                pattern=".*\S.*"
                 onChange={(e) => setForm({ ...form, concept: e.target.value })}
                 required
               />
@@ -2978,7 +3089,9 @@ function Finance({ notify }) {
                 Valor
                 <input
                   type="number"
-                  min="1"
+                  min="0.01"
+                  max="999999999999.99"
+                  step="0.01"
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: e.target.value })}
                   required
@@ -2988,12 +3101,15 @@ function Finance({ notify }) {
                 Fecha
                 <input
                   type="date"
+                  max={today()}
                   value={form.date}
                   onChange={(e) => setForm({ ...form, date: e.target.value })}
                 />
               </label>
             </div>
-            <button className="primary wide">Guardar movimiento</button>
+            <button className="primary wide" disabled={saving}>
+              {saving ? 'Guardando…' : 'Guardar movimiento'}
+            </button>
           </form>
         </div>
       )}
@@ -3009,11 +3125,18 @@ function Finance({ notify }) {
             </button>
             <span className="eyebrow green">RECORDATORIO</span>
             <h2>Programar gasto</h2>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
             <p className="muted">El sistema te avisará cuando la fecha se acerque.</p>
             <label>
               Concepto
               <input
                 value={reminderForm.concept}
+                maxLength={255}
+                pattern=".*\S.*"
                 onChange={(e) => setReminderForm({ ...reminderForm, concept: e.target.value })}
                 placeholder="Ej: Pago factura de agua"
                 required
@@ -3037,7 +3160,9 @@ function Finance({ notify }) {
                 Valor estimado
                 <input
                   type="number"
-                  min="1"
+                  min="0.01"
+                  max="999999999999.99"
+                  step="0.01"
                   value={reminderForm.estimatedAmount}
                   onChange={(e) =>
                     setReminderForm({ ...reminderForm, estimatedAmount: e.target.value })
@@ -3051,11 +3176,14 @@ function Finance({ notify }) {
                   type="date"
                   min={today()}
                   value={reminderForm.dueDate}
+                  required
                   onChange={(e) => setReminderForm({ ...reminderForm, dueDate: e.target.value })}
                 />
               </label>
             </div>
-            <button className="primary wide">Programar recordatorio</button>
+            <button className="primary wide" disabled={saving}>
+              {saving ? 'Guardando…' : 'Programar recordatorio'}
+            </button>
           </form>
         </div>
       )}

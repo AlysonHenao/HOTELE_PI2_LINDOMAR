@@ -1,0 +1,98 @@
+{
+  "checkedAt": "2026-11-01T19:13:36.178666-05:00",
+  "branch": "Julian/Sprint3",
+  "baseCommit": "d8fd722a498ea9e07e03e8a03af52b4fda9c97c0",
+  "workingTree": "uncommitted Sprint 3 implementation",
+  "scope": "local Maven verify; not a GitHub Actions run",
+  "totals": {
+    "tests": 106,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "classes": [
+    {
+      "name": "co.lindomar.CancellationPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.312"
+    },
+    {
+      "name": "co.lindomar.config.AdminBootstrapConfigTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "1.719"
+    },
+    {
+      "name": "co.lindomar.FinanceSprint3IntegrationTest",
+      "tests": "20",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "10.256"
+    },
+    {
+      "name": "co.lindomar.HotelStoriesIntegrationTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "1.379"
+    },
+    {
+      "name": "co.lindomar.Sprint1IntegrationTest",
+      "tests": "37",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "3.351"
+    },
+    {
+      "name": "co.lindomar.Sprint2IntegrationTest",
+      "tests": "33",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "4.008"
+    },
+    {
+      "name": "co.lindomar.StaffSprint2IntegrationTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "1.319"
+    }
+  ],
+  "jacoco": {
+    "INSTRUCTION": {
+      "covered": 3885,
+      "missed": 719
+    },
+    "BRANCH": {
+      "covered": 286,
+      "missed": 156
+    },
+    "LINE": {
+      "covered": 867,
+      "missed": 192
+    },
+    "COMPLEXITY": {
+      "covered": 322,
+      "missed": 185
+    },
+    "METHOD": {
+      "covered": 232,
+      "missed": 54
+    },
+    "CLASS": {
+      "covered": 38,
+      "missed": 0
+    }
+  },
+  "checkstyleViolations": 0
+}

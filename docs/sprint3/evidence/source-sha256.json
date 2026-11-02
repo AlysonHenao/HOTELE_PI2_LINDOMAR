@@ -1,0 +1,21 @@
+{
+  ".github/workflows/ci.yml": "e2447ffe96e6e5e5ffca936f1ed8ad19dbc62b2107767c83af618c0cf04abf28",
+  ".github/workflows/deploy-aws.yml": "d595c1db4f09b55e2cddcf205b9f89f23441ed389dbdd02a288abab8785b1ba8",
+  "backend/src/main/java/co/lindomar/config/AdminBootstrapConfig.java": "32ce74789a6ce2b7e287aca74452ba1cd3b8bc6f6c68456dd7d1b438adf5134f",
+  "backend/src/main/java/co/lindomar/config/SeedData.java": "d412950378a6dbcff1d0465e06e31f499749d4b59b7d73c87304e9b00278dc4f",
+  "backend/src/main/java/co/lindomar/domain/Domain.java": "ca793e915c3b17159946b3ed5f5a06de330557950138f682567686cae5674e2f",
+  "backend/src/main/java/co/lindomar/repository/ReminderRepository.java": "035ea68ad2d570a373ea453616d3359d45a6046f1939c4fa8ab1dab59e568674",
+  "backend/src/main/java/co/lindomar/web/HotelController.java": "14701f1ef1e1dce843a2db54ce3a4ac8d78a9a2c725a03fd7b4f1df681a1a563",
+  "backend/src/main/java/co/lindomar/web/FinanceRequests.java": "1476480199c001d562b0403280ca882c3439703e53edaf7aed2a76542188798a",
+  "backend/src/main/resources/application.yml": "3e4a4c2feb14cf69422c8dbd209e0c6dbdacea6770c4371bc63438a6c0c776c5",
+  "backend/src/test/java/co/lindomar/FinanceSprint3IntegrationTest.java": "bb5ead6fdbb436d3864e30feda0f9518a383c01395c3b5734bb54e419e53e8d1",
+  "backend/src/test/java/co/lindomar/config/AdminBootstrapConfigTest.java": "39638aeec61f677b537f767b5b6a37ad7b9e8730a61ce1724820e9df31a5aa8a",
+  "backend/src/test/java/co/lindomar/Sprint2IntegrationTest.java": "a016493c211dee7965b4e59fb6ce24b79feabed880fd7d2855cd877a9eae5688",
+  "frontend/src/main.jsx": "11db492c4c9a808a80747647ebab29038fc2a2ee81deddf0643859119876ed4b",
+  "frontend/.prettierrc.json": "de416798777a6e6c6c76807ec9e15b67792be1a60642a354aba36d00d209489c",
+  "deploy/aws/compose.yml": "bbb6e5c6ae48a475f48569a1b9d42b0700c96374fd25b58e90ac3a034635f60f",
+  "deploy/aws/deploy.sh": "3a7b11f0bba3a0c3dfa1851ef42f0b0805d0aefe48ee7d38577a41d275a8ff8d",
+  "deploy/aws/send-deploy.py": "787c3b5d2d8c360b17e376b63081776ee5aa78d3de61920b0ecfeb6132ecda6c",
+  "deploy/aws/Caddyfile": "54d55dfdbcfe89988194c5ed10773e7263dfb70f825794245e234d621804b3fa",
+  "scripts/seed-usability.mjs": "b4d309c6b88dc1a1441e7d01651b406bc7faf2dea1d1c9faf149de4b1b5f1137"
+}

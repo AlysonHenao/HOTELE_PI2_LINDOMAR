@@ -1,0 +1,128 @@
+name: Deploy AWS EC2
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aws-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: aws-production
+      url: https://${{ vars.PUBLIC_HOST }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+      ECR_BACKEND_REPOSITORY: ${{ vars.ECR_BACKEND_REPOSITORY }}
+      ECR_FRONTEND_REPOSITORY: ${{ vars.ECR_FRONTEND_REPOSITORY }}
+      PUBLIC_HOST: ${{ vars.PUBLIC_HOST }}
+      SSM_PARAMETER_PREFIX: ${{ vars.SSM_PARAMETER_PREFIX }}
+      IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.IMAGE_TAG }}
+
+      - name: Validate configuration and reject obsolete commits
+        run: |
+          for name in AWS_REGION AWS_ROLE_ARN EC2_INSTANCE_ID ECR_BACKEND_REPOSITORY ECR_FRONTEND_REPOSITORY PUBLIC_HOST SSM_PARAMETER_PREFIX; do
+            test -n "${!name}" || { echo "Missing repository/environment variable: $name"; exit 1; }
+          done
+          test "$IMAGE_TAG" = "$(git ls-remote origin refs/heads/main | cut -f1)" || {
+            echo 'Candidate is no longer current main; deployment stopped.'; exit 1;
+          }
+
+      # A manual run must pass the same CI gate before obtaining AWS credentials.
+      - name: Set up Java for manual validation
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      - name: Set up Node for manual validation
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Validate manual deployment
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          (cd backend && mvn --batch-mode --no-transfer-progress verify)
+          (cd frontend && npm ci && npm run lint && npm run build)
+
+      - name: Assume AWS role through OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push immutable candidate images
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t "$ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG" backend
+          docker build -t "$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG" frontend
+          docker push "$ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG"
+
+      - name: Deploy reviewed files through Systems Manager
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          test "$IMAGE_TAG" = "$(git ls-remote origin refs/heads/main | cut -f1)"
+          python3 deploy/aws/send-deploy.py > "$RUNNER_TEMP/ssm-parameters.json"
+          command_id=$(aws ssm send-command --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name AWS-RunShellScript --comment "Lindomar $IMAGE_TAG" \
+            --parameters "file://$RUNNER_TEMP/ssm-parameters.json" \
+            --query Command.CommandId --output text)
+          echo "SSM command: $command_id" >> "$GITHUB_STEP_SUMMARY"
+          for attempt in $(seq 1 120); do
+            status=$(aws ssm get-command-invocation --command-id "$command_id" \
+              --instance-id "$EC2_INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in
+              Success) echo "Deployed $IMAGE_TAG to https://$PUBLIC_HOST" >> "$GITHUB_STEP_SUMMARY"; exit 0 ;;
+              Failed|Cancelled|TimedOut|Cancelling)
+                aws ssm get-command-invocation --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" \
+                  --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}'
+                exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo 'Timed out waiting for SSM; inspect the command before retrying.'; exit 1
+
+      - name: Verify public application
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-all-errors "https://$PUBLIC_HOST/" > /dev/null
+          curl --fail --silent --show-error --retry 5 --retry-all-errors "https://$PUBLIC_HOST/api/rooms" > /dev/null

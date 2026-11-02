@@ -1,0 +1,14 @@
+
+> lindomar-web@0.1.0 build
+> vite build
+
+vite v8.2.0 building client environment for production...
+
+transforming...✓ 1566 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.86 kB │ gzip:  0.46 kB
+dist/assets/index-BT3zIYMi.css   41.26 kB │ gzip:  8.92 kB
+dist/assets/index-6SbewRkI.js   270.43 kB │ gzip: 80.03 kB
+
+✓ built in 183ms

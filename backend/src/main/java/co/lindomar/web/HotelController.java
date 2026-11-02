@@ -599,6 +599,7 @@ public class HotelController {
       @RequestBody Reservation r) {
     final var guest = requireUser(authorization, Role.GUEST);
     r.setId(null);
+    r.setNotes(validatedReservationNotes(r.getNotes()));
     if (r.getRoomId() == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Selecciona una habitación");
     }
@@ -713,9 +714,17 @@ public class HotelController {
       r.setStatus(data.getStatus());
     }
     if (data.getNotes() != null) {
-      r.setNotes(data.getNotes());
+      r.setNotes(validatedReservationNotes(data.getNotes()));
     }
     return view(reservations.save(r));
+  }
+
+  private String validatedReservationNotes(String notes) {
+    if (notes != null && notes.trim().length() > 255) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Las observaciones no pueden superar 255 caracteres");
+    }
+    return notes == null ? null : notes.trim();
   }
 
   @Transactional
@@ -1055,12 +1064,15 @@ public class HotelController {
   @PostMapping("/finance")
   FinanceEntry createFinance(
       @RequestHeader(value = "Authorization", required = false) String authorization,
-      @RequestBody FinanceEntry e) {
+      @Valid @RequestBody FinanceRequests.Movement input) {
     requireUser(authorization, Role.ADMIN);
-    if (e.getDate() == null) {
-      e.setDate(LocalDate.now(clock));
+    var date = input.date() == null ? LocalDate.now(clock) : input.date();
+    if (date.isAfter(LocalDate.now(clock))) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "Un movimiento real no puede tener fecha futura; programa un gasto");
     }
-    return finance.save(e);
+    return finance.save(new FinanceEntry(input.type(), input.concept(), input.amount(), date));
   }
 
   // HU-15: recordatorios programados de gastos necesarios.
@@ -1074,56 +1086,120 @@ public class HotelController {
   @PostMapping("/reminders")
   ExpenseReminder createReminder(
       @RequestHeader(value = "Authorization", required = false) String authorization,
-      @RequestBody ExpenseReminder r) {
+      @Valid @RequestBody FinanceRequests.Reminder input) {
     requireUser(authorization, Role.ADMIN);
-    if (r.getStatus() == null) {
-      r.setStatus(ReminderStatus.PENDING);
-    }
-    if (r.getDueDate() == null) {
-      r.setDueDate(LocalDate.now(clock));
-    }
-    return reminders.save(r);
+    validateReminderDate(input.dueDate());
+    return reminders.save(
+        new ExpenseReminder(
+            input.concept(),
+            input.category(),
+            input.estimatedAmount(),
+            input.dueDate(),
+            ReminderStatus.PENDING));
   }
 
+  @Transactional
   @PutMapping("/reminders/{id}")
   ExpenseReminder updateReminder(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id,
-      @RequestBody ExpenseReminder data) {
+      @Valid @RequestBody FinanceRequests.ReminderUpdate data) {
     requireUser(authorization, Role.ADMIN);
-    var r = reminders.findById(id).orElseThrow();
-    if (data.getStatus() != null) {
-      r.setStatus(data.getStatus());
+    var r = lockedReminder(id);
+    requirePendingReminder(r);
+    if (data.status() != null && data.status() != ReminderStatus.PENDING) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "Usa Registrar gasto para atender el recordatorio y actualizar el balance");
     }
-    if (data.getConcept() != null) {
-      r.setConcept(data.getConcept());
+    if (data.concept() != null) {
+      r.setConcept(data.concept());
     }
-    if (data.getDueDate() != null) {
-      r.setDueDate(data.getDueDate());
+    if (data.category() != null) {
+      r.setCategory(data.category());
+    }
+    if (data.estimatedAmount() != null) {
+      r.setEstimatedAmount(data.estimatedAmount());
+    }
+    if (data.dueDate() != null) {
+      validateReminderDate(data.dueDate());
+      r.setDueDate(data.dueDate());
     }
     return reminders.save(r);
   }
 
+  @Transactional
   @DeleteMapping("/reminders/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
   void deleteReminder(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
     requireUser(authorization, Role.ADMIN);
-    reminders.deleteById(id);
+    var r = lockedReminder(id);
+    requirePendingReminder(r);
+    reminders.delete(r);
   }
 
   /** Marca el recordatorio como atendido y registra el gasto real en el balance. */
+  @Transactional
   @PostMapping("/reminders/{id}/pay")
   FinanceEntry payReminder(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
     requireUser(authorization, Role.ADMIN);
-    var r = reminders.findById(id).orElseThrow();
+    var r = lockedReminder(id);
+    if (r.getPaymentEntryId() != null) {
+      return finance
+          .findById(r.getPaymentEntryId())
+          .orElseThrow(
+              () ->
+                  new ResponseStatusException(
+                      HttpStatus.CONFLICT, "Revisa el movimiento asociado al pago"));
+    }
+    requirePendingReminder(r);
+    // También protege recordatorios heredados que no pasaron por el contrato validado.
+    if (r.getEstimatedAmount() == null
+        || r.getEstimatedAmount().signum() <= 0
+        || r.getConcept() == null
+        || r.getConcept().isBlank()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Corrige el concepto y el valor del recordatorio antes de pagarlo");
+    }
+    var entry =
+        finance.saveAndFlush(
+            new FinanceEntry(
+                EntryType.EXPENSE, r.getConcept(), r.getEstimatedAmount(), LocalDate.now(clock)));
+    r.setPaymentEntryId(entry.getId());
     r.setStatus(ReminderStatus.DONE);
     reminders.save(r);
-    return finance.save(
-        new FinanceEntry(
-            EntryType.EXPENSE, r.getConcept(), r.getEstimatedAmount(), LocalDate.now(clock)));
+    return entry;
+  }
+
+  private ExpenseReminder lockedReminder(Long id) {
+    var reminder =
+        reminders
+            .findByIdForUpdate(id)
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Recordatorio no encontrado"));
+    entityManager.refresh(reminder);
+    return reminder;
+  }
+
+  private void requirePendingReminder(ExpenseReminder reminder) {
+    if (reminder.getStatus() != ReminderStatus.PENDING || reminder.getPaymentEntryId() != null) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "El recordatorio atendido no puede modificarse ni pagarse de nuevo");
+    }
+  }
+
+  private void validateReminderDate(LocalDate date) {
+    if (date.isBefore(LocalDate.now(clock))) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "La fecha límite de un nuevo recordatorio no puede estar en el pasado");
+    }
   }
 
   @GetMapping("/dashboard")

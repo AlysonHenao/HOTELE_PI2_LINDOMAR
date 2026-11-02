@@ -1,0 +1,107 @@
+﻿class,test,seconds,result
+co.lindomar.CancellationPolicyTest,"twoHourDeadlineUsesHotelTimezoneAndRejectsAtTheCutoff(String, boolean)[1]",0.208,passed
+co.lindomar.CancellationPolicyTest,"twoHourDeadlineUsesHotelTimezoneAndRejectsAtTheCutoff(String, boolean)[2]",0.005,passed
+co.lindomar.CancellationPolicyTest,"twoHourDeadlineUsesHotelTimezoneAndRejectsAtTheCutoff(String, boolean)[3]",0.0,passed
+co.lindomar.CancellationPolicyTest,"twoHourDeadlineUsesHotelTimezoneAndRejectsAtTheCutoff(String, boolean)[4]",0.0,passed
+co.lindomar.config.AdminBootstrapConfigTest,emptyDatabaseRequiresCredentials,1.544,passed
+co.lindomar.config.AdminBootstrapConfigTest,createsOnlyAnAdminWithHashedPassword,0.175,passed
+co.lindomar.config.AdminBootstrapConfigTest,restartNeverOverwritesAnExistingAccount,0.0,passed
+co.lindomar.FinanceSprint3IntegrationTest,nonexistentReminderReturns404AndAnonymousCannotPay,0.328,passed
+co.lindomar.FinanceSprint3IntegrationTest,legacyDoneAndInvalidLegacyReminderDoNotGenerateAnotherExpense,0.117,passed
+co.lindomar.FinanceSprint3IntegrationTest,validIncomeAndExpenseUseNewIdsAndReconcileExactly,0.277,passed
+co.lindomar.FinanceSprint3IntegrationTest,repeatedPaymentReturnsSameMovementAndPreservesAuditTrail,0.116,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidAmountsDoNotChangeBalance(String)[1],0.094,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidAmountsDoNotChangeBalance(String)[2],0.071,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidAmountsDoNotChangeBalance(String)[3],0.069,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidAmountsDoNotChangeBalance(String)[4],0.069,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidAmountsDoNotChangeBalance(String)[5],0.069,passed
+co.lindomar.FinanceSprint3IntegrationTest,oversizedReservationNotesReturn400WithoutCreatingIncomeOrTasks,0.076,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidReminderAndDirectDoneCannotBypassPayment,0.098,passed
+co.lindomar.FinanceSprint3IntegrationTest,financialOperationsRequireAdmin(String)[1],0.086,passed
+co.lindomar.FinanceSprint3IntegrationTest,financialOperationsRequireAdmin(String)[2],0.079,passed
+co.lindomar.FinanceSprint3IntegrationTest,createIgnoresClientPaymentIdentityAndPendingReminderCanBeEdited,0.093,passed
+co.lindomar.FinanceSprint3IntegrationTest,simultaneousPaymentsGenerateExactlyOneExpense,0.1,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidMovementsAreRejected(String)[1],0.075,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidMovementsAreRejected(String)[2],0.075,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidMovementsAreRejected(String)[3],0.069,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidMovementsAreRejected(String)[4],0.088,passed
+co.lindomar.FinanceSprint3IntegrationTest,invalidMovementsAreRejected(String)[5],0.091,passed
+co.lindomar.HotelStoriesIntegrationTest,logoutRevokesTheServerSession,0.094,passed
+co.lindomar.HotelStoriesIntegrationTest,completesReservationViewingAndPhotoEvidenceStories,0.326,passed
+co.lindomar.Sprint1IntegrationTest,roomSearchReturnsAllDetailsNeededBeforeBooking,0.023,passed
+co.lindomar.Sprint1IntegrationTest,adminCanPersistEveryStatusAndUnavailableRoomsCannotBeBooked(RoomStatus)[1],0.138,passed
+co.lindomar.Sprint1IntegrationTest,adminCanPersistEveryStatusAndUnavailableRoomsCannotBeBooked(RoomStatus)[2],0.167,passed
+co.lindomar.Sprint1IntegrationTest,adminCanPersistEveryStatusAndUnavailableRoomsCannotBeBooked(RoomStatus)[3],0.158,passed
+co.lindomar.Sprint1IntegrationTest,adminCanPersistEveryStatusAndUnavailableRoomsCannotBeBooked(RoomStatus)[4],0.148,passed
+co.lindomar.Sprint1IntegrationTest,adminCanPersistEveryStatusAndUnavailableRoomsCannotBeBooked(RoomStatus)[5],0.151,passed
+co.lindomar.Sprint1IntegrationTest,cancelledReservationsDoNotBlockSearchAndFiltersStillCombine,0.028,passed
+co.lindomar.Sprint1IntegrationTest,guestCannotReadAdministratorEndpoints,0.088,passed
+co.lindomar.Sprint1IntegrationTest,adminCanEditPermittedRoomInformationAndInventoryReflectsIt,0.071,passed
+co.lindomar.Sprint1IntegrationTest,registrationHashesCredentialsNormalizesEmailAndKeepsGuestRole,0.278,passed
+co.lindomar.Sprint1IntegrationTest,bcryptRejectsOversizedUtf8PasswordsAndSeedPasswordsAreHashed,0.267,passed
+co.lindomar.Sprint1IntegrationTest,nonAdminsCannotChangeStatusOrPromoteThemselves(String)[1],0.092,passed
+co.lindomar.Sprint1IntegrationTest,nonAdminsCannotChangeStatusOrPromoteThemselves(String)[2],0.09,passed
+co.lindomar.Sprint1IntegrationTest,searchRejectsOneMissingDate(String)[1],0.0,passed
+co.lindomar.Sprint1IntegrationTest,searchRejectsOneMissingDate(String)[2],0.0,passed
+co.lindomar.Sprint1IntegrationTest,statusRequiresAuthenticationAndValidExistingRoom,0.094,passed
+co.lindomar.Sprint1IntegrationTest,adminReservationListRequiresAdminAndContainsCompleteReservationData,0.197,passed
+co.lindomar.Sprint1IntegrationTest,searchRejectsMalformedDatesButPreservesUndatedCatalog,0.016,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[1]",0.016,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[2]",0.016,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[3]",0.017,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[4]",0.015,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[5]",0.015,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[6]",0.016,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[7]",0.014,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[8]",0.0,passed
+co.lindomar.Sprint1IntegrationTest,"searchHandlesOverlapsAndAllowsAdjacentStays(int, int, boolean)[9]",0.016,passed
+co.lindomar.Sprint1IntegrationTest,legacyPasswordMigrationIsIdempotent,0.112,passed
+co.lindomar.Sprint1IntegrationTest,registrationRejectsInvalidFields(String)[1],0.0,passed
+co.lindomar.Sprint1IntegrationTest,registrationRejectsInvalidFields(String)[2],0.016,passed
+co.lindomar.Sprint1IntegrationTest,registrationRejectsInvalidFields(String)[3],0.0,passed
+co.lindomar.Sprint1IntegrationTest,registrationRejectsInvalidFields(String)[4],0.0,passed
+co.lindomar.Sprint1IntegrationTest,registrationRejectsInvalidFields(String)[5],0.007,passed
+co.lindomar.Sprint1IntegrationTest,adminCanCreateAValidatedRoomAndSeeItInInventory,0.086,passed
+co.lindomar.Sprint1IntegrationTest,"searchRejectsPastEqualAndReversedDates(int, int)[1]",0.009,passed
+co.lindomar.Sprint1IntegrationTest,"searchRejectsPastEqualAndReversedDates(int, int)[2]",0.003,passed
+co.lindomar.Sprint1IntegrationTest,"searchRejectsPastEqualAndReversedDates(int, int)[3]",0.003,passed
+co.lindomar.Sprint2IntegrationTest,roomDeletionCannotOrphanAReservationAndBreakItsCancellation,0.127,passed
+co.lindomar.Sprint2IntegrationTest,adminUpdateUsesSamePolicyAndCannotResurrectOrMoveAnExpiredReservation,0.097,passed
+co.lindomar.Sprint2IntegrationTest,reservationCreationCannotOverwriteAnExistingId,0.08,passed
+co.lindomar.Sprint2IntegrationTest,demotionRevokesAdminAccessAndNoOpRoleChangeKeepsSessions,0.288,passed
+co.lindomar.Sprint2IntegrationTest,noEmployeesDoesNotPreventValidReservationAndCancellation,0.143,passed
+co.lindomar.Sprint2IntegrationTest,reservationAutomaticallyAssignsPreparationTaskToLeastBusyEmployee,0.144,passed
+co.lindomar.Sprint2IntegrationTest,cancelTodayBeforeOnePmReleasesItsRoom,0.083,passed
+co.lindomar.Sprint2IntegrationTest,cancellationReleasesDatesPreservesHistoryAndRefundsOriginalAmountOnce,0.078,passed
+co.lindomar.Sprint2IntegrationTest,missingRoomAndInvalidDatesHaveExplicitErrors,0.014,passed
+co.lindomar.Sprint2IntegrationTest,detailsRespectEveryOperationalStatus(RoomStatus)[1],0.0,passed
+co.lindomar.Sprint2IntegrationTest,detailsRespectEveryOperationalStatus(RoomStatus)[2],0.018,passed
+co.lindomar.Sprint2IntegrationTest,detailsRespectEveryOperationalStatus(RoomStatus)[3],0.0,passed
+co.lindomar.Sprint2IntegrationTest,detailsRespectEveryOperationalStatus(RoomStatus)[4],0.006,passed
+co.lindomar.Sprint2IntegrationTest,detailsRespectEveryOperationalStatus(RoomStatus)[5],0.0,passed
+co.lindomar.Sprint2IntegrationTest,roleValidationProtectsSelfAndRejectsUnknownRolesOrUsers,0.077,passed
+co.lindomar.Sprint2IntegrationTest,startedAndCompletedStaysCannotBeCancelledEvenByAdmin(ReservationStatus)[1],0.179,passed
+co.lindomar.Sprint2IntegrationTest,startedAndCompletedStaysCannotBeCancelledEvenByAdmin(ReservationStatus)[2],0.135,passed
+co.lindomar.Sprint2IntegrationTest,vacatingRoomAutomaticallyAssignsOneHousekeepingTask,0.089,passed
+co.lindomar.Sprint2IntegrationTest,expiredSessionAndMissingRoleNeverGrantAccess,0.142,passed
+co.lindomar.Sprint2IntegrationTest,restrictedRolesCannotReadOrWriteAdministrativeResources(String)[1],0.117,passed
+co.lindomar.Sprint2IntegrationTest,restrictedRolesCannotReadOrWriteAdministrativeResources(String)[2],0.077,passed
+co.lindomar.Sprint2IntegrationTest,adminCanAssignRolesAndAllOldSessionsAreRevoked,0.338,passed
+co.lindomar.Sprint2IntegrationTest,simultaneousCancellationsCreateExactlyOneRefund,0.084,passed
+co.lindomar.Sprint2IntegrationTest,cancellingFutureStayNeverClearsCurrentOccupancyOrManualBlocks(RoomStatus)[1],0.078,passed
+co.lindomar.Sprint2IntegrationTest,cancellingFutureStayNeverClearsCurrentOccupancyOrManualBlocks(RoomStatus)[2],0.059,passed
+co.lindomar.Sprint2IntegrationTest,cancellingFutureStayNeverClearsCurrentOccupancyOrManualBlocks(RoomStatus)[3],0.079,passed
+co.lindomar.Sprint2IntegrationTest,cancellingFutureStayNeverClearsCurrentOccupancyOrManualBlocks(RoomStatus)[4],0.064,passed
+co.lindomar.Sprint2IntegrationTest,cancelledOrCompletedReservationsAllowOperationalBlock,0.064,passed
+co.lindomar.Sprint2IntegrationTest,cancellationRequiresOwnershipRoleAndValidSession,0.319,passed
+co.lindomar.Sprint2IntegrationTest,completingOnCheckoutDayReleasesRoomWithoutRefund,0.083,passed
+co.lindomar.Sprint2IntegrationTest,operationalBlockCannotLeaveActiveReservationConfirmed(RoomStatus)[1],0.075,passed
+co.lindomar.Sprint2IntegrationTest,operationalBlockCannotLeaveActiveReservationConfirmed(RoomStatus)[2],0.076,passed
+co.lindomar.Sprint2IntegrationTest,roomDetailsContainCurrentInformationAndPeriodPrice,0.012,passed
+co.lindomar.StaffSprint2IntegrationTest,employeeCompletesOnlyAnOwnInProgressTaskAndCannotCompleteItTwice,0.333,passed
+co.lindomar.StaffSprint2IntegrationTest,employeeCanStartOwnPendingTaskButCannotSkipOrReverseTheWorkflow,0.318,passed
+co.lindomar.StaffSprint2IntegrationTest,employeeViewsOnlyOwnAssignedTasks,0.137,passed
+co.lindomar.StaffSprint2IntegrationTest,adminAssignsOnlyValidTasksToEmployees,0.127,passed
+co.lindomar.StaffSprint2IntegrationTest,dashboardUsesZeroOccupancyWhenThereAreNoRooms,0.08,passed
+co.lindomar.StaffSprint2IntegrationTest,taskAssignmentRejectsWrongRoleUnknownEmployeeAndInvalidFields,0.19,passed
+co.lindomar.StaffSprint2IntegrationTest,dashboardReportsEveryRoomStateAndTheOccupancyRate,0.128,passed
