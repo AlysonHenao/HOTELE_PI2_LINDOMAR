@@ -103,6 +103,19 @@ const future = (days = 1) => {
   d.setDate(d.getDate() + days);
   return localDate(d);
 };
+/** Fecha del hotel para que la política no dependa de la zona del dispositivo del huésped. */
+const hotelDate = (offset = 0) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const part = (type) => parts.find((value) => value.type === type).value;
+  const date = new Date(`${part('year')}-${part('month')}-${part('day')}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+};
 const initials = (name) =>
   name
     .split(' ')
@@ -481,6 +494,8 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
   }, [user.role]);
   useEffect(() => {
     refreshBadge();
+    window.addEventListener('lindomar-requests-changed', refreshBadge);
+    return () => window.removeEventListener('lindomar-requests-changed', refreshBadge);
   }, [refreshBadge, page]);
 
   return (
@@ -1225,6 +1240,7 @@ function Reservations({ user, notify }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [editing, setEditing] = useState(null);
   const load = () =>
     api('/reservations/mine')
       .then(setItems)
@@ -1262,6 +1278,15 @@ function Reservations({ user, notify }) {
           <h3>Mis reservas</h3>
           <p className="muted">Consulta el estado y los detalles de tus estadías.</p>
         </div>
+        <button
+          className="secondary"
+          onClick={() => {
+            setError('');
+            load();
+          }}
+        >
+          Actualizar reservas
+        </button>
       </div>
       {error && (
         <p className="form-error" role="alert">
@@ -1284,9 +1309,11 @@ function Reservations({ user, notify }) {
               </p>
               {r.notes && <small>“{r.notes}”</small>}
               <p className="policy-note">{r.cancellationPolicy}</p>
+              <p className="policy-note">{r.modificationPolicy}</p>
+              {!r.modifiable && <small>{r.modificationReason}</small>}
               {r.status === 'CONFIRMED' && (
                 <small>
-                  Límite:{' '}
+                  Plazo de cancelación:{' '}
                   {new Date(r.cancellationDeadline).toLocaleString('es-CO', {
                     timeZone: 'America/Bogota',
                   })}{' '}
@@ -1297,11 +1324,22 @@ function Reservations({ user, notify }) {
             </div>
             <strong className="reservation-total">{money(r.total)}</strong>
             <span className={`status ${r.status.toLowerCase()}`}>{label[r.status]}</span>
-            {r.cancellable && (
-              <button className="ghost danger" disabled={busy !== null} onClick={() => cancel(r)}>
-                {busy === r.id ? 'Cancelando…' : 'Cancelar'}
-              </button>
-            )}
+            <div className="reservation-actions">
+              {r.modifiable && (
+                <button
+                  className="secondary"
+                  disabled={busy !== null}
+                  onClick={() => setEditing(r)}
+                >
+                  Modificar
+                </button>
+              )}
+              {r.cancellable && (
+                <button className="ghost danger" disabled={busy !== null} onClick={() => cancel(r)}>
+                  {busy === r.id ? 'Cancelando…' : 'Cancelar'}
+                </button>
+              )}
+            </div>
           </article>
         ))}
         {!items.length && (
@@ -1311,19 +1349,253 @@ function Reservations({ user, notify }) {
           </div>
         )}
       </div>
+      {editing && (
+        <ReservationChangeModal
+          reservation={editing}
+          onClose={() => {
+            setEditing(null);
+            load();
+          }}
+          onSaved={async () => {
+            setEditing(null);
+            notify('Reserva modificada. El importe y la disponibilidad fueron actualizados.');
+            await load();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function ReservationChangeModal({ reservation, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    roomId: reservation.roomId,
+    checkIn: reservation.checkIn,
+    checkOut: reservation.checkOut,
+    guests: reservation.guests,
+    notes: reservation.notes || '',
+    expectedVersion: reservation.version,
+  });
+  const [rooms, setRooms] = useState([]);
+  const [quote, setQuote] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  useEffect(() => {
+    let active = true;
+    api('/rooms/all')
+      .then((list) => {
+        if (active) setRooms(list);
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const change = (values) => {
+    setForm((current) => ({ ...current, ...values }));
+    setQuote(null);
+    setError('');
+  };
+  const review = async (event) => {
+    event.preventDefault();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      setQuote(
+        await api(`/reservations/${reservation.id}/quote`, {
+          method: 'POST',
+          body: JSON.stringify(form),
+        })
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    if (lock.current || !quote) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/reservations/${reservation.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...form, expectedTotal: quote.total }),
+      });
+      await onSaved();
+    } catch (err) {
+      setError(err.message);
+      setQuote(null);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  };
+  const selected = rooms.find((room) => room.id === Number(form.roomId));
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <form
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-title"
+        onSubmit={review}
+      >
+        <button
+          type="button"
+          className="modal-close"
+          aria-label="Cerrar modificación"
+          disabled={busy}
+          onClick={onClose}
+        >
+          <X />
+        </button>
+        <span className="eyebrow green">RESERVA #{reservation.id}</span>
+        <h2 id="change-title">Modificar reserva</h2>
+        <p className="policy-note">{reservation.modificationPolicy}</p>
+        <fieldset className="stay-fields" disabled={busy}>
+          <label>
+            Habitación
+            <select
+              autoFocus
+              value={form.roomId}
+              onChange={(event) => change({ roomId: Number(event.target.value) })}
+              required
+            >
+              {!rooms.length && (
+                <option value={reservation.roomId}>Habitación {reservation.roomNumber}</option>
+              )}
+              {rooms
+                .filter((room) => room.status === 'AVAILABLE' || room.id === reservation.roomId)
+                .map((room) => (
+                  <option key={room.id} value={room.id} disabled={room.status !== 'AVAILABLE'}>
+                    {room.number} · {room.type} · hasta {room.capacity} personas ·{' '}
+                    {money(room.price)}/noche
+                  </option>
+                ))}
+            </select>
+          </label>
+          <div className="form-grid">
+            <label>
+              Llegada
+              <input
+                type="date"
+                min={hotelDate(1)}
+                value={form.checkIn}
+                required
+                onChange={(event) => change({ checkIn: event.target.value })}
+              />
+            </label>
+            <label>
+              Salida
+              <input
+                type="date"
+                min={form.checkIn}
+                value={form.checkOut}
+                required
+                onChange={(event) => change({ checkOut: event.target.value })}
+              />
+            </label>
+            <label>
+              Huéspedes
+              <input
+                type="number"
+                min="1"
+                max={selected?.capacity}
+                value={form.guests}
+                required
+                onChange={(event) => change({ guests: Number(event.target.value) })}
+              />
+            </label>
+          </div>
+          <label>
+            Observaciones
+            <textarea
+              maxLength={255}
+              value={form.notes}
+              onChange={(event) => change({ notes: event.target.value })}
+            />
+          </label>
+        </fieldset>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        {quote && (
+          <div className="price-summary reservation-change-summary" role="status">
+            <p>Total anterior: {money(quote.previousTotal)}</p>
+            <p>
+              Nuevo total por {quote.nights} noche(s): <strong>{money(quote.total)}</strong>
+            </p>
+            <p>
+              {quote.difference > 0
+                ? `Ingreso adicional: ${money(quote.difference)}`
+                : quote.difference < 0
+                  ? `Reembolso a registrar: ${money(-quote.difference)}`
+                  : 'Sin diferencia de importe.'}
+            </p>
+            <small>El ajuste se registra en el balance del hotel al confirmar.</small>
+          </div>
+        )}
+        {quote ? (
+          <button type="button" className="primary wide" disabled={busy} onClick={save}>
+            {busy ? 'Guardando…' : 'Confirmar cambios'}
+          </button>
+        ) : (
+          <button className="primary wide" disabled={busy || !rooms.length}>
+            {busy ? 'Revisando…' : 'Revisar cambios'}
+          </button>
+        )}
+      </form>
+    </div>
   );
 }
 
 function Requests({ user, notify }) {
   const [items, setItems] = useState([]);
+  const [stays, setStays] = useState([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const submission = useRef(null);
   const [form, setForm] = useState({
-    guestId: user.id,
-    roomNumber: '',
+    reservationId: '',
     category: 'Toallas y lencería',
     notes: '',
   });
-  const load = useCallback(() => api(`/requests?guestId=${user.id}`).then(setItems), [user.id]);
+  const load = useCallback(
+    () =>
+      Promise.all([api(`/requests?guestId=${user.id}`), api('/requests/eligible-reservations')])
+        .then(([list, eligible]) => {
+          setItems(list);
+          setStays(eligible);
+          setForm((current) => ({
+            ...current,
+            reservationId: eligible.some(
+              (stay) => String(stay.id) === String(current.reservationId)
+            )
+              ? current.reservationId
+              : String(eligible[0]?.id || ''),
+          }));
+        })
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false)),
+    [user.id]
+  );
   // Se envuelve en llaves a propósito: si el efecto devuelve la promesa de `load`,
   // React la toma como función de limpieza y falla al desmontar la vista.
   useEffect(() => {
@@ -1331,10 +1603,32 @@ function Requests({ user, notify }) {
   }, [load]);
   const submit = async (e) => {
     e.preventDefault();
-    await api('/requests', { method: 'POST', body: JSON.stringify(form) });
-    setForm({ ...form, notes: '' });
-    notify('Solicitud enviada al equipo');
-    load();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    const payload = {
+      ...form,
+      reservationId: Number(form.reservationId),
+      notes: form.notes.trim(),
+    };
+    const body = JSON.stringify(payload);
+    if (submission.current?.body !== body) submission.current = { body, key: crypto.randomUUID() };
+    try {
+      const saved = await api('/requests', {
+        method: 'POST',
+        body: JSON.stringify({ ...payload, clientRequestId: submission.current.key }),
+      });
+      submission.current = null;
+      setForm((current) => ({ ...current, notes: '' }));
+      notify(`Solicitud #${saved.id} enviada al equipo`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   };
 
   return (
@@ -1342,41 +1636,63 @@ function Requests({ user, notify }) {
       <form className="panel request-form" onSubmit={submit}>
         <span className="eyebrow green">ATENCIÓN A LA HABITACIÓN</span>
         <h3>¿En qué podemos ayudarte?</h3>
-        <label>
-          Habitación
-          <input
-            placeholder="Ej: 201"
-            value={form.roomNumber}
-            onChange={(e) => setForm({ ...form, roomNumber: e.target.value })}
-            required
-          />
-        </label>
-        <label>
-          Tipo de solicitud
-          <select
-            value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
-          >
-            <option>Toallas y lencería</option>
-            <option>Limpieza</option>
-            <option>Alimentos y bebidas</option>
-            <option>Mantenimiento</option>
-            <option>Otro</option>
-          </select>
-        </label>
-        <label>
-          Observaciones
-          <textarea
-            placeholder="Cuéntanos qué necesitas…"
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            required
-          />
-        </label>
-        <button className="primary wide">
-          <ConciergeBell size={17} />
-          Enviar solicitud
-        </button>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        {loading && <p role="status">Consultando tus estadías…</p>}
+        {!loading && !stays.length && (
+          <p role="status">
+            Podrás solicitar asistencia durante tu estadía. Si ya llegaste y no aparece tu
+            habitación, consulta a recepción.
+          </p>
+        )}
+        <fieldset className="stay-fields" disabled={busy || loading || !stays.length}>
+          <label>
+            Habitación
+            <select
+              value={form.reservationId}
+              onChange={(e) => setForm({ ...form, reservationId: e.target.value })}
+              required
+            >
+              {!stays.length && <option value="">Sin estadías vigentes</option>}
+              {stays.map((stay) => (
+                <option key={stay.id} value={stay.id}>
+                  {stay.roomNumber} · Reserva #{stay.id} · {fmtDate(stay.checkIn)} —{' '}
+                  {fmtDate(stay.checkOut)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Tipo de solicitud
+            <select
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+            >
+              <option>Toallas y lencería</option>
+              <option>Limpieza</option>
+              <option>Alimentos y bebidas</option>
+              <option>Mantenimiento</option>
+              <option>Otro</option>
+            </select>
+          </label>
+          <label>
+            Observaciones
+            <textarea
+              placeholder="Cuéntanos qué necesitas…"
+              value={form.notes}
+              maxLength={1200}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              required
+            />
+          </label>
+          <button className="primary wide" disabled={busy || !form.notes.trim()}>
+            <ConciergeBell size={17} />
+            {busy ? 'Enviando…' : 'Enviar solicitud'}
+          </button>
+        </fieldset>
       </form>
       <div>
         <div className="section-head">
@@ -1384,6 +1700,16 @@ function Requests({ user, notify }) {
             <h3>Solicitudes recientes</h3>
             <p className="muted">Sigue el progreso de tu atención.</p>
           </div>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => {
+              setError('');
+              load();
+            }}
+          >
+            Actualizar
+          </button>
         </div>
         <div className="list-stack compact">
           {items.map((i) => (
@@ -1673,19 +1999,37 @@ function TaskCompletion({ task, onComplete }) {
  */
 function ServiceRequests({ notify, onChange }) {
   const [items, setItems] = useState([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(null);
+  const lock = useRef(false);
   const load = () =>
-    api('/requests').then((list) =>
-      setItems([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)))
-    );
+    api('/requests')
+      .then((list) => {
+        setItems([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+        window.dispatchEvent(new Event('lindomar-requests-changed'));
+      })
+      .catch((err) => setError(err.message));
   useEffect(() => {
     load();
   }, []);
 
   const update = async (id, status) => {
-    await api(`/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-    notify(status === 'RESOLVED' ? 'Solicitud marcada como resuelta' : 'Solicitud en progreso');
-    load();
-    onChange?.();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(id);
+    setError('');
+    try {
+      await api(`/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+      notify(status === 'RESOLVED' ? 'Solicitud marcada como resuelta' : 'Solicitud en progreso');
+      await load();
+      onChange?.();
+    } catch (err) {
+      setError(err.message);
+      await load();
+    } finally {
+      lock.current = false;
+      setBusy(null);
+    }
   };
 
   const open = items.filter((i) => i.status !== 'RESOLVED');
@@ -1712,6 +2056,16 @@ function ServiceRequests({ notify, onChange }) {
           <h3>Solicitudes por atender</h3>
           <p className="muted">Peticiones enviadas por los huéspedes desde sus habitaciones.</p>
         </div>
+        <button
+          className="secondary"
+          disabled={busy !== null}
+          onClick={() => {
+            setError('');
+            load();
+          }}
+        >
+          Actualizar solicitudes
+        </button>
         {open.length > 0 && (
           <span className="notification-chip">
             <BellRing size={15} />
@@ -1719,6 +2073,11 @@ function ServiceRequests({ notify, onChange }) {
           </span>
         )}
       </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="list-stack">
         {open.map((i) => (
           <article className="request-row" key={i.id}>
@@ -1740,14 +2099,22 @@ function ServiceRequests({ notify, onChange }) {
             <div className="request-actions">
               <span className={`status ${i.status.toLowerCase()}`}>{label[i.status]}</span>
               {i.status === 'OPEN' && (
-                <button className="secondary" onClick={() => update(i.id, 'IN_PROGRESS')}>
-                  Atender
+                <button
+                  className="secondary"
+                  disabled={busy !== null}
+                  onClick={() => update(i.id, 'IN_PROGRESS')}
+                >
+                  {busy === i.id ? 'Guardando…' : 'Atender'}
                 </button>
               )}
               {i.status === 'IN_PROGRESS' && (
-                <button className="primary" onClick={() => update(i.id, 'RESOLVED')}>
+                <button
+                  className="primary"
+                  disabled={busy !== null}
+                  onClick={() => update(i.id, 'RESOLVED')}
+                >
                   <CheckCircle2 size={16} />
-                  Resolver
+                  {busy === i.id ? 'Guardando…' : 'Resolver'}
                 </button>
               )}
             </div>

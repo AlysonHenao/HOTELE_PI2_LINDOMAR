@@ -1779,7 +1779,24 @@ select {
   transform: translateY(-2px);
 }
 .reservation-row {
-  grid-template-columns: auto 1fr auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+}
+.reservation-row > div:nth-child(2) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.reservation-row small {
+  display: block;
+}
+.reservation-row .policy-note {
+  margin: 8px 0;
+}
+.reservation-change-summary {
+  display: grid;
+  gap: 8px;
+}
+.reservation-change-summary p {
+  margin: 0;
 }
 .reservation-row h3 {
   margin-bottom: 5px;
@@ -1791,6 +1808,21 @@ select {
   color: var(--muted);
   font-size: 12px;
 }
+.stay-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.stay-fields > label {
+  margin-bottom: 16px;
+}
+.reservation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .reservation-total {
   font-family: var(--font-display);
   font-size: 19px;
@@ -1830,7 +1862,7 @@ select {
 .request-row {
   grid-template-columns: auto 1fr auto;
 }
-.request-row > span {
+.request-row > span:not(.status) {
   width: 44px;
   height: 44px;
   border-radius: var(--r-md);
@@ -1842,6 +1874,10 @@ select {
 .request-row h3 {
   margin: 0;
   font-size: 15px;
+}
+.request-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .request-row small {
   display: block;
@@ -2715,12 +2751,16 @@ td > small {
     grid-column: 2;
   }
   .reservation-row {
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr);
   }
   .reservation-total {
-    display: none;
+    display: block;
+    grid-column: 2;
   }
   .reservation-row > .status {
+    grid-column: 2;
+  }
+  .reservation-actions {
     grid-column: 2;
   }
   .metric-grid.three {
@@ -2861,10 +2901,14 @@ td > small {
   .reservation-row > .status {
     grid-column: 1;
   }
+  .reservation-total,
+  .reservation-actions {
+    grid-column: 1;
+  }
   .request-row {
     grid-template-columns: 1fr;
   }
-  .request-row > span {
+  .request-row > span:not(.status) {
     display: none;
   }
   .metric-grid.four {

@@ -153,6 +153,34 @@ No uses el cambio de rol del administrador de demo para probar esta función.
 
 Para probar el checkout completo se requiere una reserva vigente con ingreso realizado; no se permite hacer check-in de una reserva de mañana durante el día de hoy.
 
+### Prueba 7 — Modificar una reserva (HU-10)
+
+1. Como huésped, crea una reserva con llegada posterior a hoy y entra en **Mis reservas**.
+2. Pulsa **Modificar** y cambia fechas, habitación, número de huéspedes u observaciones.
+3. Pulsa **Revisar cambios** y comprueba total anterior, nuevo total y diferencia.
+4. Pulsa **Confirmar cambios**. Verifica la nueva habitación y fechas en Mis reservas.
+5. Como administrador, revisa la diferencia en **Finanzas** y la preparación en **Tareas**.
+
+**Resultado esperado:** solo el propietario puede modificar una reserva confirmada,
+antes del día de llegada en Colombia. No se admite una nueva llegada de hoy o anterior,
+solapamientos, habitaciones bloqueadas ni sobrecupo. La diferencia se registra una sola
+vez como ingreso o gasto; las observaciones por sí solas no cambian el precio acordado.
+La cancelación posterior devuelve el nuevo total, sin repetir el ajuste previo.
+Si otro cambio o precio invalida la revisión, se informa el conflicto antes de guardar.
+
+### Prueba 8 — Solicitar asistencia desde la habitación (HU-12)
+
+1. En una base de pruebas, crea como huésped una reserva con llegada hoy y salida futura.
+2. Abre **Atención**. Selecciona tu habitación, el tipo de solicitud y describe la necesidad.
+3. Pulsa **Enviar solicitud** y verifica el identificador y el estado Abierta.
+4. Como empleado, abre **Solicitudes**, pulsa **Atender** y después **Resolver**.
+5. Como huésped, pulsa **Actualizar** para comprobar el estado Resuelta.
+
+**Resultado esperado:** solo se ofrecen estadías propias vigentes; sin una estadía
+vigente, el formulario explica cuándo estará disponible. El servidor no permite
+inventar otra habitación o huésped. Los errores conservan el texto y los reintentos
+de la misma solicitud no crean duplicados. El huésped no puede cambiar el estado.
+
 ## 6. Comprobaciones automáticas
 
 Desde la raíz del repositorio, con Docker disponible:
@@ -161,7 +189,7 @@ Desde la raíz del repositorio, con Docker disponible:
 docker run --rm -e TZ=America/Bogota -v "${PWD}/backend:/app" -v lindomar-maven-cache:/root/.m2 -w /app maven:3.9.9-eclipse-temurin-21 mvn --batch-mode --no-transfer-progress verify
 ```
 
-**Resultado esperado en esta versión:** `Tests run: 83, Failures: 0, Errors: 0, Skipped: 0`, `0 Checkstyle violations` y `BUILD SUCCESS`. El número puede aumentar con cambios posteriores.
+**Resultado esperado en esta versión:** `Tests run: 130, Failures: 0, Errors: 0, Skipped: 0`, `0 Checkstyle violations` y `BUILD SUCCESS`. El número puede aumentar con cambios posteriores.
 
 Para comprobar el frontend:
 

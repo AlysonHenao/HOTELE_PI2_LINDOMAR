@@ -139,6 +139,13 @@ Consulta la [Wiki del Sprint 2](https://github.com/AlysonHenao/HOTELE_PI2_LINDOM
 
 ### Sprint 3 — trabajo de Julián
 
+- **HU-10:** el huésped modifica su reserva confirmada antes del día de llegada,
+  hora de Colombia. Puede cambiar habitación, fechas, huéspedes y observaciones;
+  revisa el nuevo total antes de confirmar. Se validan disponibilidad y capacidad,
+  se registra solo la diferencia financiera y se actualiza la preparación del personal.
+- **HU-12:** el huésped solicita asistencia desde una estadía propia vigente. La habitación
+  la determina el servidor. La solicitud aparece en la bandeja del personal y sigue
+  Abierta → En progreso → Resuelta. Los reintentos no duplican solicitudes.
 - Finanzas: validación de valores positivos, campos obligatorios y fechas en el servidor.
   Los pagos repetidos o simultáneos de un recordatorio conservan un único gasto.
 - Formularios: errores visibles, confirmación de pago y protección ante clics repetidos.
@@ -149,4 +156,26 @@ Consulta la [Wiki del Sprint 2](https://github.com/AlysonHenao/HOTELE_PI2_LINDOM
 
 Estos documentos se preparan también como secciones de la Wiki para la entrega.
 Los resultados de usuarios y el despliegue deben completarse con evidencias reales.
+
+#### API y comprobación de HU-10 / HU-12
+
+- `POST /api/reservations/{id}/quote`: cotiza el cambio sin persistirlo.
+- `PATCH /api/reservations/{id}`: confirma con `roomId`, `checkIn`, `checkOut`, `guests`,
+  `notes`, `expectedVersion` y `expectedTotal`. Un formulario desactualizado o un precio
+  distinto devuelve 409 y requiere revisar nuevamente. La versión se obtiene de Mis reservas.
+- `GET /api/requests/eligible-reservations`: devuelve las estadías propias entre llegada
+  inclusiva y salida exclusiva, en estado confirmada o alojada.
+- `POST /api/requests`: recibe `reservationId`, `category`, `notes` y un `clientRequestId`
+  UUID conservado en reintentos. El servidor asigna huésped, habitación, fecha y estado.
+- `PUT /api/requests/{id}`: el empleado o administrador avanza el estado de atención.
+
+Las cancelaciones conservan su política de dos horas antes del check-in; esa política
+es distinta de la modificación, que ya no está permitida el día de llegada.
+Los ajustes financieros son contables: no ejecutan cobros o devoluciones bancarias.
+
+Pruebas: `cd backend` y `mvn verify` (o `mvn -Dtest=GuestStaySprint3IntegrationTest test`
+para estas historias). Frontend: `npm ci`, `npm run lint` y `npm run build`.
+Al iniciar, Hibernate agrega la versión de reserva con valor inicial cero y columnas
+opcionales para vincular solicitudes a la estadía y deduplicar reintentos. Los registros
+anteriores se conservan. Usar una copia de la base antes de actualizar un entorno con datos reales.
 
