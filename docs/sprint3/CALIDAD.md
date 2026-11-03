@@ -1,4 +1,4 @@
-# Sprint 3: implementación, pruebas y evidencias
+# Sprint 3
 
 Validación local del 1 de noviembre de 2026, rama `Julian/Sprint3`, basada en
 `main` (`d8fd722`). Los cambios aún deben publicarse por PR y verificarse en CI.
@@ -88,15 +88,4 @@ con los comandos anteriores y se adjuntan automáticamente en CI:
 - `jacoco-coverage-report`: coverage HTML/XML/CSV.
 - `backend-quality-evidence-SHA`: Surefire y análisis estático, incluso si falla un job.
 
-## Publicación y evidencia pendiente
 
-Al abrir el PR, registrar su URL y el commit final. Tras ejecutar CI, registrar URL
-del run y descargar sus artefactos; comprobarlos desde una sesión con los permisos
-que tendrá el profesor. Verificar enlaces de Wiki, README, código, pruebas y coverage.
-No asumir protección de rama ni bloqueo de merge sin comprobar la configuración
-real de GitHub. No se han cambiado las reglas de protección de `main`.
-
-Para demo: mostrar validación de importe, pago una vez, reintento sin duplicado y
-balance; después abrir pruebas, run CI y coverage del mismo SHA. Agregar despliegue
-y hallazgos de usuarios cuando existan. No exponer credenciales ni grabar sesiones reales
-en los artefactos de calidad.
