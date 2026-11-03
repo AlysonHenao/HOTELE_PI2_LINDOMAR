@@ -1621,6 +1621,113 @@ select {
   width: 17px;
 }
 
+/* Detalle de habitación */
+.room-details {
+  width: min(680px, 100%);
+  padding: 40px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.room-details .eyebrow {
+  display: block;
+  padding-right: 52px;
+  letter-spacing: 0.2em;
+}
+.room-details h2 {
+  margin: 10px 52px 18px 0;
+  font-size: clamp(30px, 4vw, 38px);
+  line-height: 1.08;
+}
+.room-photo,
+.room-photo-placeholder {
+  display: flex;
+  width: 100%;
+  height: 166px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-bottom: 24px;
+}
+.room-photo {
+  object-fit: cover;
+  background: var(--bg-sunken);
+}
+.room-photo-placeholder {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.72), transparent 64%), var(--bg-sunken);
+}
+.room-photo-placeholder svg {
+  color: var(--ink-soft);
+  stroke-width: 1.7;
+}
+.room-photo-placeholder span {
+  font-size: 15px;
+  font-weight: 500;
+}
+.room-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 48px;
+  margin: 0 0 24px;
+}
+.room-facts > div {
+  min-width: 0;
+}
+.room-facts dt {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.room-facts dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.room-details h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+.room-details .tags {
+  margin-bottom: 10px;
+}
+.room-stay-dates {
+  margin-bottom: 14px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.room-availability {
+  margin-bottom: 18px;
+  font-size: 15px;
+}
+.room-details .price-summary {
+  margin-bottom: 16px;
+  padding: 18px 20px;
+}
+.room-details .price-summary strong {
+  font-size: 28px;
+}
+.policy-note {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--sun-500);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--sun-100);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.room-details > .primary.wide {
+  min-height: 48px;
+  box-shadow: 0 10px 24px rgba(14, 122, 148, 0.2);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2265,16 +2372,103 @@ td > small {
 }
 
 /* ---------- 23. Usuarios ---------- */
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.permission-card {
+  min-height: 220px;
+  overflow: hidden;
+  position: relative;
+}
+.permission-card::after {
+  content: '';
+  position: absolute;
+  width: 130px;
+  height: 130px;
+  right: -54px;
+  top: -58px;
+  border-radius: 50%;
+  background: var(--ocean-100);
+  opacity: 0.7;
+  pointer-events: none;
+}
+.permission-card header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  position: relative;
+  z-index: 1;
+}
+.permission-card header > span {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: linear-gradient(135deg, var(--ocean-100), var(--ocean-200));
+  color: var(--ocean-800);
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+}
+.permission-card header small {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.permission-card h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.permission-card ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.permission-card li {
+  position: relative;
+  padding-left: 22px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.permission-card li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--leaf-500);
+  font-weight: 800;
+}
+.permission-card.role-admin header > span {
+  background: linear-gradient(135deg, var(--sun-100), var(--sun-300));
+  color: var(--sun-600);
+}
+.permission-card.role-guest header > span {
+  background: linear-gradient(135deg, var(--leaf-100), var(--sun-300));
+  color: var(--leaf-700);
+}
+
 .user-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 .user-grid article {
-  padding: 20px;
+  padding: 22px;
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 15px;
+  gap: 14px 16px;
   position: relative;
 }
 .user-grid article:hover {
@@ -2290,6 +2484,26 @@ td > small {
   color: var(--muted);
   font-size: 11px;
   margin: 0;
+}
+.user-grid article > label {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+.user-grid article > label select {
+  width: 100%;
+  min-height: 42px;
+  background-color: var(--bg);
+}
+.user-grid article > label small {
+  line-height: 1.4;
+  font-weight: 500;
 }
 .role-tag {
   position: absolute;
@@ -2394,6 +2608,13 @@ td > small {
   }
   .user-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .permission-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .permission-card:last-child {
+    grid-column: 1 / -1;
+    min-height: auto;
   }
   .admin-task-row {
     grid-template-columns: auto 1fr auto;
@@ -2556,6 +2777,14 @@ td > small {
   .user-grid {
     grid-template-columns: 1fr;
   }
+  .permission-grid {
+    grid-template-columns: 1fr;
+  }
+  .permission-card,
+  .permission-card:last-child {
+    grid-column: auto;
+    min-height: auto;
+  }
   .filter-card {
     grid-template-columns: 1fr;
   }
@@ -2597,6 +2826,31 @@ td > small {
   }
   .modal h2 {
     font-size: 24px;
+  }
+  .room-details {
+    width: 100%;
+    padding: 28px 20px 22px;
+    border-radius: var(--r-lg);
+  }
+  .room-details h2 {
+    margin-top: 8px;
+    margin-bottom: 16px;
+  }
+  .room-photo,
+  .room-photo-placeholder {
+    height: 142px;
+    margin-bottom: 20px;
+  }
+  .room-facts {
+    grid-template-columns: 1fr;
+    gap: 13px;
+    margin-bottom: 22px;
+  }
+  .room-details .price-summary {
+    padding: 15px 16px;
+  }
+  .room-details .price-summary strong {
+    font-size: 23px;
   }
   .reservation-row {
     grid-template-columns: 1fr;
