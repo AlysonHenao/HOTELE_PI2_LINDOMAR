@@ -145,11 +145,7 @@ Consulta la [Wiki del Sprint 2](https://github.com/AlysonHenao/HOTELE_PI2_LINDOM
 - AWS EC2: flujo preparado para desplegar después de CI exitoso en `main`, con imágenes
   ECR, OIDC, SSM, HTTPS y copia previa de la base de datos. **Pendiente de configurar
   la instancia, región, dominio y permisos; todavía no hay URL pública verificada.**
-- [Seguimiento, pruebas y documentación del Sprint 3](docs/sprint3/README.md).
-- [Manual del administrador](docs/sprint3/MANUAL-ADMINISTRADOR.md),
-  [preparación de usabilidad](docs/sprint3/USABILIDAD.md),
-  [presupuesto operativo](docs/sprint3/PRESUPUESTO-OPERACION.md) y
-  [guía de despliegue AWS](docs/sprint3/DESPLIEGUE-AWS.md).
+- [Documentación del Sprint 3 en la Wiki](https://github.com/AlysonHenao/HOTELE_PI2_LINDOMAR/wiki/Sprint-3).
 
 Estos documentos se preparan también como secciones de la Wiki para la entrega.
 Los resultados de usuarios y el despliegue deben completarse con evidencias reales.
