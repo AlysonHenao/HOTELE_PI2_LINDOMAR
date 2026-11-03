@@ -47,6 +47,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -1202,6 +1203,90 @@ public class HotelController {
     }
   }
 
+  // HU-37: Recomendación de personal de aseo según ocupación y estacionalidad.
+  @GetMapping({"/staff/cleaning-recommendation", "/cleaning-recommendation"})
+  StaffRecommendation getCleaningStaffRecommendation(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @RequestParam(value = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+          LocalDate date) {
+    requireUser(authorization, Role.ADMIN);
+    var targetDate = date == null ? LocalDate.now(clock) : date;
+    return calculateCleaningStaffRecommendation(targetDate);
+  }
+
+  StaffRecommendation calculateCleaningStaffRecommendation(LocalDate targetDate) {
+    var allRooms = rooms.findAll();
+    var allRes = reservations.findAll();
+    int totalRooms = allRooms.size();
+
+    var activeOnDate =
+        allRes.stream()
+            .filter(
+                r ->
+                    r.getStatus() != ReservationStatus.CANCELLED
+                        && r.getStatus() != ReservationStatus.COMPLETED
+                        && !r.getCheckIn().isAfter(targetDate)
+                        && !r.getCheckOut().isBefore(targetDate))
+            .toList();
+
+    long checkoutsOnDate =
+        allRes.stream()
+            .filter(
+                r ->
+                    r.getStatus() != ReservationStatus.CANCELLED
+                        && r.getStatus() != ReservationStatus.COMPLETED
+                        && r.getCheckOut().isEqual(targetDate))
+            .count();
+
+    long occupiedCount;
+    if (targetDate.isEqual(LocalDate.now(clock))) {
+      occupiedCount =
+          Math.max(
+              allRooms.stream().filter(r -> r.getStatus() == RoomStatus.OCCUPIED).count(),
+              activeOnDate.size());
+    } else {
+      occupiedCount = activeOnDate.size();
+    }
+
+    long occupancyRate = totalRooms == 0 ? 0 : Math.round(occupiedCount * 100.0 / totalRooms);
+
+    int month = targetDate.getMonthValue();
+    boolean isHighSeason =
+        (month == 12 || month == 1 || month == 6 || month == 7 || occupancyRate >= 75);
+    String season = isHighSeason ? "HIGH" : "REGULAR";
+    String seasonDescription = isHighSeason ? "Temporada Alta" : "Temporada Regular";
+    int ratio = isHighSeason ? 3 : 4;
+
+    int effectiveRooms = (int) occupiedCount + (int) Math.ceil(checkoutsOnDate * 0.5);
+    int recommended =
+        totalRooms == 0 ? 0 : Math.max(1, (int) Math.ceil((double) effectiveRooms / ratio));
+
+    String rationale =
+        String.format(
+            Locale.ROOT,
+            "Para una ocupación del %d%% en %s con %d salida(s) de habitación, "
+                + "se recomiendan %d persona(s) de aseo (ratio: 1 persona por cada %d"
+                + " habitaciones).",
+            occupancyRate,
+            seasonDescription,
+            checkoutsOnDate,
+            recommended,
+            ratio);
+
+    return new StaffRecommendation(
+        targetDate,
+        totalRooms,
+        occupiedCount,
+        checkoutsOnDate,
+        activeOnDate.size(),
+        occupancyRate,
+        season,
+        seasonDescription,
+        ratio,
+        recommended,
+        rationale);
+  }
+
   @GetMapping("/dashboard")
   Map<String, Object> dashboard(
       @RequestHeader(value = "Authorization", required = false) String authorization) {
@@ -1234,7 +1319,8 @@ public class HotelController {
                     r.getStatus() != ReservationStatus.CANCELLED
                         && r.getStatus() != ReservationStatus.COMPLETED)
             .count();
-    int suggested = Math.max(1, (int) Math.ceil((occupied + active) / 4.0));
+    var cleaningRec = calculateCleaningStaffRecommendation(LocalDate.now(clock));
+    int suggested = cleaningRec.recommendedCleaners();
     long openRequests =
         requests.findAll().stream().filter(x -> x.getStatus() != RequestStatus.RESOLVED).count();
     var pending =
@@ -1264,6 +1350,8 @@ public class HotelController {
     result.put("expenses", expense);
     result.put("balance", income.subtract(expense));
     result.put("suggestedCleaners", suggested);
+    result.put("cleaningRationale", cleaningRec.rationale());
+    result.put("cleaningRecommendation", cleaningRec);
     result.put("openRequests", openRequests);
     result.put("pendingReminders", pending.size());
     result.put("remindersDueSoon", dueSoon);

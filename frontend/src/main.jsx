@@ -1927,7 +1927,7 @@ function AdminHome({ notify }) {
           <div>
             <small>ESTIMACIÓN DE PERSONAL</small>
             <h3>{d.suggestedCleaners} persona(s) de aseo</h3>
-            <p>Calculado según la ocupación y las reservas activas.</p>
+            <p>{d.cleaningRationale || 'Calculado según la ocupación y la temporada.'}</p>
           </div>
         </div>
       </div>
