@@ -2512,13 +2512,26 @@ function AdminHome({ notify }) {
           </span>
           <div>
             <small>ESTIMACIÓN DE PERSONAL</small>
-            <h3>{d.suggestedCleaners} persona(s) de aseo</h3>
+            <h3>
+              {d.suggestedCleaners}{' '}
+              {d.suggestedCleaners === 1 ? 'persona de aseo' : 'personas de aseo'}
+            </h3>
             <p>
               {(d.cleaningRationale || '')
                 .replace(/\s*\(ratio:[^)]*\)/gi, '')
+                .replace(/Para una ocupación del/gi, 'Con el hotel al')
                 .replace(/Para una ocupación/gi, 'Con el hotel al')
                 .replace(/con 0 salida\(s\) de habitación,/gi, 'y sin salidas de habitaciones hoy,')
+                .replace(/al del/gi, 'al')
+                .replace(
+                  /se recomiendan 1 persona\(s\) de aseo/gi,
+                  'se sugiere programar 1 persona de aseo'
+                )
                 .replace(/se recomiendan/gi, 'se sugiere programar')
+                .replace(
+                  /persona\(s\) de aseo/gi,
+                  d.suggestedCleaners === 1 ? 'persona de aseo' : 'personas de aseo'
+                )
                 .trim() || 'Calculado según la ocupación y la temporada.'}
             </p>
           </div>
