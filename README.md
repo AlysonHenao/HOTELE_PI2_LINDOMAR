@@ -182,3 +182,14 @@ anteriores se conservan. Usar una copia de la base antes de actualizar un entorn
 
 - **HU-22:** en **Reservas**, el administrador puede filtrar las reservas que se pueden cancelar, confirmar la operación y consultar el historial filtrando por **Cancelada**. Las nuevas cancelaciones registran fecha, hora y rol de origen. Se conserva la política del hotel, la liberación de fechas y el registro de un único reembolso interno.
 - **HU-29:** **Avisos de tareas** muestra notificaciones de asignaciones manuales o automáticas, cambios y reasignaciones. Los avisos se actualizan cada 15 segundos y se conservan hasta que su destinatario los marca como leídos.
+
+## Sprint 3 — borrador documental y manuales
+
+- [Sprint 3 borrador](https://github.com/AlysonHenao/HOTELE_PI2_LINDOMAR/wiki/Sprint-3-Borrador).
+- [Manual completo de huésped](https://github.com/AlysonHenao/HOTELE_PI2_LINDOMAR/wiki/Sprint-3-Manual-Huesped).
+- [Despliegue y verificación](https://github.com/AlysonHenao/HOTELE_PI2_LINDOMAR/wiki/Sprint-3-Despliegue).
+- **URL pública: [COMPLETAR: URL verificada].**
+
+Arquitectura objetivo del borrador: AWS EC2, Docker Compose, ECR y GitHub Actions. El [CI del commit aa3fcf3](https://github.com/AlysonHenao/HOTELE_PI2_LINDOMAR/actions/runs/41860731641) terminó correctamente; el [Deploy AWS del mismo commit](https://github.com/AlysonHenao/HOTELE_PI2_LINDOMAR/actions/runs/41861195546) falló. La configuración HTTPS y Parameter Store requiere verificación real; no acredita un servicio público operativo. Las cuentas de demostración de este README son para entornos de prueba y deben retirarse antes de uso real.
+
+El borrador conserva pendientes explícitos para revisión del equipo y del PO. Las capturas nuevas del manual requieren main actualizado y trazabilidad del SHA; no se sustituyen por capturas históricas.
