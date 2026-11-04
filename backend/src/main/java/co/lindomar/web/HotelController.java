@@ -39,6 +39,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -517,6 +518,7 @@ public class HotelController {
       @RequestParam(required = false) BigDecimal maxPrice,
       @RequestParam(required = false) Boolean balcony,
       @RequestParam(required = false) Boolean petFriendly,
+      @RequestParam(required = false) String service,
       @RequestParam(required = false) LocalDate checkIn,
       @RequestParam(required = false) LocalDate checkOut) {
     if (checkIn != null || checkOut != null) {
@@ -528,6 +530,14 @@ public class HotelController {
         .filter(r -> maxPrice == null || r.getPrice().compareTo(maxPrice) <= 0)
         .filter(r -> balcony == null || !balcony || r.isBalcony())
         .filter(r -> petFriendly == null || !petFriendly || r.isPetFriendly())
+        .filter(
+            r ->
+                service == null
+                    || service.isBlank()
+                    || (r.getServices() != null
+                        && r.getServices()
+                            .toLowerCase(Locale.ROOT)
+                            .contains(service.trim().toLowerCase(Locale.ROOT))))
         .filter(r -> r.getStatus() == RoomStatus.AVAILABLE)
         .filter(
             r ->
@@ -1325,6 +1335,37 @@ public class HotelController {
           HttpStatus.CONFLICT,
           "La atención debe avanzar de Abierta a En progreso y después a Resuelta");
     }
+    return requests.save(r);
+  }
+
+  /** HU-13: Datos para agregar un comentario de seguimiento a una solicitud de asistencia. */
+  public record RequestCommentInput(
+      @NotBlank(message = "El comentario es obligatorio")
+          @Size(min = 1, max = 1000, message = "El comentario no puede superar 1000 caracteres")
+          String comment) {}
+
+  /** HU-13: Permite al huésped o empleado agregar comentarios a una solicitud de asistencia. */
+  @Transactional
+  @PostMapping("/requests/{id}/comments")
+  ServiceRequest addRequestComment(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id,
+      @Valid @RequestBody RequestCommentInput input) {
+    var actor = requireUser(authorization, null);
+    var r =
+        requests
+            .findByIdForUpdate(id)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
+    if (actor.getRole() == Role.GUEST && !Objects.equals(actor.getId(), r.getGuestId())) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solicitud de otro huésped");
+    }
+    String timeStamp =
+        LocalDateTime.now(clock).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));
+    String author = actor.getRole() == Role.GUEST ? "Huésped" : actor.getName();
+    String newEntry = "\n[" + timeStamp + " · " + author + "]: " + input.comment().trim();
+    String currentNotes = r.getNotes() == null ? "" : r.getNotes();
+    r.setNotes(currentNotes + newEntry);
     return requests.save(r);
   }
 
