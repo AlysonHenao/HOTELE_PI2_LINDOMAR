@@ -56,6 +56,7 @@ class GuestStaySprint3IntegrationTest {
   @Autowired RoomRepository rooms;
   @Autowired FinanceRepository finance;
   @Autowired TaskRepository tasks;
+  @Autowired TaskNotificationRepository taskNotifications;
   @Autowired UserRepository users;
   @Autowired RequestRepository requests;
   @Autowired Clock clock;
@@ -181,6 +182,7 @@ class GuestStaySprint3IntegrationTest {
     var data = change(r, target, 7, 3);
     long beforeFinance = finance.count();
     long beforeTasks = tasks.count();
+    long beforeNotifications = taskNotifications.count();
     var quote =
         read(
             mvc.perform(
@@ -192,6 +194,7 @@ class GuestStaySprint3IntegrationTest {
     assertThat(quote.path("difference").decimalValue()).isEqualByComparingTo("250000");
     assertThat(finance.count()).isEqualTo(beforeFinance);
     assertThat(tasks.count()).isEqualTo(beforeTasks);
+    assertThat(taskNotifications.count()).isEqualTo(beforeNotifications);
     assertThat(r.getRoomId()).isEqualTo(first.getId());
     var saved = read(modify(r.getId(), guest, data));
     assertThat(saved.path("roomId").asLong()).isEqualTo(target.getId());
@@ -211,6 +214,16 @@ class GuestStaySprint3IntegrationTest {
     var task = tasks.findByEventKey("RESERVATION_CREATED:" + r.getId()).orElseThrow();
     assertThat(task.getTitle()).isEqualTo("Preparar habitación " + target.getNumber());
     assertThat(task.getDueDate()).isEqualTo(LocalDate.of(2030, 6, 17));
+    assertThat(taskNotifications.count()).isEqualTo(beforeNotifications + 1);
+    assertThat(
+            taskNotifications.findTop50ByEmployeeIdAndReadAtIsNullOrderByIdDesc(
+                task.getEmployeeId()))
+        .anySatisfy(
+            notice -> {
+              assertThat(notice.getTaskId()).isEqualTo(task.getId());
+              assertThat(notice.getMessage())
+                  .contains("modificación de reserva", target.getNumber());
+            });
     // El huésped no puede repetir un formulario viejo y duplicar el ajuste.
     data.put("expectedVersion", oldVersion);
     modify(r.getId(), guest, data).andExpect(status().isConflict());

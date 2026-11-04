@@ -437,6 +437,7 @@ const navByRole = {
   ],
   EMPLOYEE: [
     ['tasks', 'Mis tareas', ClipboardCheck],
+    ['task-notifications', 'Avisos de tareas', Bell],
     ['staff-requests', 'Solicitudes', ConciergeBell],
   ],
   ADMIN: [
@@ -455,7 +456,24 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const [openRequests, setOpenRequests] = useState(0);
+  const [taskNotices, setTaskNotices] = useState([]);
+  const [noticeError, setNoticeError] = useState('');
   const notify = useCallback((text) => setToast({ text }), []);
+
+  const refreshNotices = useCallback(async () => {
+    try {
+      setTaskNotices(await api('/tasks/notifications'));
+      setNoticeError('');
+    } catch (err) {
+      setNoticeError(err.message);
+    }
+  }, []);
+  useEffect(() => {
+    if (user.role !== 'EMPLOYEE') return;
+    refreshNotices();
+    const timer = setInterval(refreshNotices, 15000);
+    return () => clearInterval(timer);
+  }, [user.role, refreshNotices]);
 
   // Contador de solicitudes abiertas para el badge del menú (roles de staff).
   const refreshBadge = useCallback(() => {
@@ -498,7 +516,9 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
                 setOpen(false);
               }}
               aria-current={page === id ? 'page' : undefined}
-              aria-label={name}
+              aria-label={
+                id === 'task-notifications' ? `${name}, ${taskNotices.length} sin leer` : name
+              }
             >
               <Icon size={19} aria-hidden="true" />
               {name}
@@ -506,6 +526,9 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
                 <span className="nav-badge" aria-label={`${openRequests} solicitudes abiertas`}>
                   {openRequests}
                 </span>
+              )}
+              {id === 'task-notifications' && taskNotices.length > 0 && (
+                <span className="nav-badge">{taskNotices.length}</span>
               )}
             </button>
           ))}
@@ -549,6 +572,13 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
         <div className="content">
           {user.role === 'GUEST' ? (
             <Guest page={page} user={user} notify={notify} go={setPage} />
+          ) : page === 'task-notifications' && user.role === 'EMPLOYEE' ? (
+            <TaskNotifications
+              items={taskNotices}
+              loadError={noticeError}
+              onRead={refreshNotices}
+              goToTasks={() => setPage('tasks')}
+            />
           ) : user.role === 'EMPLOYEE' ? (
             <Employee page={page} user={user} notify={notify} onChange={refreshBadge} />
           ) : user.role === 'ADMIN' ? (
@@ -1789,6 +1819,59 @@ function Employee({ page, user, notify, onChange }) {
   return <EmployeeTasks user={user} notify={notify} />;
 }
 
+function TaskNotifications({ items, loadError, onRead, goToTasks }) {
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const markRead = async (id) => {
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/tasks/notifications/${id}/read`, { method: 'PATCH' });
+      await onRead();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="section-head">
+        <div>
+          <h3>Avisos de tareas</h3>
+          <p className="muted">Nuevas asignaciones y cambios en tus tareas.</p>
+        </div>
+        <button className="ghost" onClick={goToTasks}>
+          Ir a mis tareas
+        </button>
+      </div>
+      {(loadError || error) && (
+        <p role="alert" className="form-error">
+          {loadError || error}
+        </p>
+      )}
+      <div className="list-stack" aria-live="polite">
+        {!items.length && !loadError && <p>No tienes avisos pendientes.</p>}
+        {items.map((item) => (
+          <article className="task-card" key={item.id}>
+            <p>{item.message}</p>
+            <p className="muted">
+              Tarea #{item.taskId} · {formatHotelDateTime(item.createdAt)}
+            </p>
+            <button className="ghost" disabled={busy} onClick={() => markRead(item.id)}>
+              Marcar como leído
+            </button>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function formatHotelDateTime(value) {
+  return new Date(value).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+}
+
 function EmployeeTasks({ user, notify }) {
   const [tasks, setTasks] = useState([]);
   const [error, setError] = useState('');
@@ -2676,7 +2759,9 @@ function AdminReservations({ notify }) {
           r.guestName.toLowerCase().includes(query) ||
           r.roomNumber.toLowerCase().includes(query) ||
           String(r.id).includes(query);
-        const matchesStatus = filters.status === 'ALL' || r.status === filters.status;
+        const matchesStatus =
+          filters.status === 'ALL' ||
+          (filters.status === 'CANCELLABLE' ? r.cancellable : r.status === filters.status);
         const matchesFrom = !filters.from || r.checkIn >= filters.from;
         const matchesTo = !filters.to || r.checkOut <= filters.to;
         return matchesQuery && matchesStatus && matchesFrom && matchesTo;
@@ -2713,6 +2798,7 @@ function AdminReservations({ notify }) {
             onChange={(e) => setFilters({ ...filters, status: e.target.value })}
           >
             <option value="ALL">Todos</option>
+            <option value="CANCELLABLE">Se pueden cancelar</option>
             <option value="CONFIRMED">Confirmada</option>
             <option value="CHECKED_IN">Alojado</option>
             <option value="COMPLETED">Finalizada</option>
@@ -2782,8 +2868,21 @@ function AdminReservations({ notify }) {
                     <option value={r.status}>{label[r.status]}</option>
                     {r.status === 'CONFIRMED' && <option value="CHECKED_IN">Alojado</option>}
                     {r.status === 'CHECKED_IN' && <option value="COMPLETED">Finalizada</option>}
-                    {r.cancellable && <option value="CANCELLED">Cancelada</option>}
                   </select>
+                  {r.cancellable && (
+                    <button
+                      className="ghost danger"
+                      disabled={busy !== null}
+                      onClick={() => update(r, 'CANCELLED')}
+                    >
+                      Cancelar reserva
+                    </button>
+                  )}
+                  {r.cancelledAt && (
+                    <small>
+                      {formatHotelDateTime(r.cancelledAt)} · {label[r.cancelledByRole]}
+                    </small>
+                  )}
                   {!r.cancellable && r.status === 'CONFIRMED' && (
                     <small>{r.cancellationReason}</small>
                   )}
@@ -3018,14 +3117,16 @@ function AdminTasks({ notify }) {
             <div>
               <small>Responsable</small>
               <strong>{name(t.employeeId)}</strong>
-              {!t.employeeId && (
+              {t.status !== 'DONE' && (
                 <select
                   aria-label={`Asignar tarea ${t.title}`}
-                  value=""
+                  value={t.employeeId ?? ''}
                   disabled={!employees.length}
                   onChange={(e) => assign(t, e.target.value)}
                 >
-                  <option value="">Asignar responsable</option>
+                  <option value="" disabled>
+                    Asignar responsable
+                  </option>
                   {employees.map((e) => (
                     <option key={e.id} value={e.id}>
                       {e.name}

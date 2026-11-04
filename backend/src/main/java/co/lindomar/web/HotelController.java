@@ -15,12 +15,14 @@ import co.lindomar.domain.Domain.ServiceRequest;
 import co.lindomar.domain.Domain.StaffTask;
 import co.lindomar.domain.Domain.TaskStatus;
 import co.lindomar.domain.Domain.UserAccount;
+import co.lindomar.domain.TaskNotification;
 import co.lindomar.repository.AuthSessionRepository;
 import co.lindomar.repository.FinanceRepository;
 import co.lindomar.repository.ReminderRepository;
 import co.lindomar.repository.RequestRepository;
 import co.lindomar.repository.ReservationRepository;
 import co.lindomar.repository.RoomRepository;
+import co.lindomar.repository.TaskNotificationRepository;
 import co.lindomar.repository.TaskRepository;
 import co.lindomar.repository.UserRepository;
 import co.lindomar.service.CancellationPolicy;
@@ -80,6 +82,7 @@ public class HotelController {
   private final ReservationRepository reservations;
   private final RequestRepository requests;
   private final TaskRepository tasks;
+  private final TaskNotificationRepository taskNotifications;
   private final FinanceRepository finance;
   private final ReminderRepository reminders;
   private final AuthSessionRepository sessions;
@@ -95,6 +98,7 @@ public class HotelController {
       ReservationRepository rs,
       RequestRepository rq,
       TaskRepository t,
+      TaskNotificationRepository taskNotifications,
       FinanceRepository f,
       ReminderRepository rm,
       AuthSessionRepository s,
@@ -106,6 +110,7 @@ public class HotelController {
     reservations = rs;
     requests = rq;
     tasks = t;
+    this.taskNotifications = taskNotifications;
     finance = f;
     reminders = rm;
     sessions = s;
@@ -167,6 +172,8 @@ public class HotelController {
       String cancellationReason,
       OffsetDateTime cancellationDeadline,
       String cancellationPolicy,
+      OffsetDateTime cancelledAt,
+      Role cancelledByRole,
       long version,
       boolean modifiable,
       String modificationReason,
@@ -832,6 +839,7 @@ public class HotelController {
       task.setDescription(description);
       task.setDueDate(reservation.getCheckIn());
       tasks.save(task);
+      notifyTask(task.getEmployeeId(), task, "Tu tarea se actualizó por modificación de reserva: ");
     } else {
       assignAutomaticTask(
           "RESERVATION_CHANGED:" + reservation.getId() + ":" + reservation.getVersion(),
@@ -931,13 +939,14 @@ public class HotelController {
     if (rejection != null) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, rejection);
     }
-    var room =
+    final var room =
         rooms
             .findByIdForUpdate(r.getRoomId())
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
     r.setStatus(ReservationStatus.CANCELLED);
+    r.recordCancellation(OffsetDateTime.now(clock), actor.getRole());
     reservations.save(r);
     releaseRoom(r, room);
     // HU-14: se registra el reembolso para que el balance siga siendo coherente tras la
@@ -1017,6 +1026,7 @@ public class HotelController {
             priority);
     task.setEventKey(eventKey);
     tasks.save(task);
+    notifyTask(task.getEmployeeId(), task, "Nueva tarea automática: ");
   }
 
   @GetMapping("/requests")
@@ -1159,6 +1169,35 @@ public class HotelController {
     return tasks.findByEmployeeIdOrderByDueDateAsc(employee.getId());
   }
 
+  @GetMapping("/tasks/notifications")
+  List<TaskNotification> getMyTaskNotifications(
+      @RequestHeader(value = "Authorization", required = false) String authorization) {
+    var employee = requireUser(authorization, Role.EMPLOYEE);
+    return taskNotifications.findTop50ByEmployeeIdAndReadAtIsNullOrderByIdDesc(employee.getId());
+  }
+
+  @Transactional
+  @PatchMapping("/tasks/notifications/{id}/read")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void readTaskNotification(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id) {
+    var employee = requireUser(authorization, Role.EMPLOYEE);
+    if (!taskNotifications.existsByIdAndEmployeeId(id, employee.getId())) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Aviso no encontrado");
+    }
+    taskNotifications.markRead(id, employee.getId(), OffsetDateTime.now(clock));
+  }
+
+  private void notifyTask(Long employeeId, StaffTask task, String prefix) {
+    if (employeeId != null) {
+      taskNotifications.save(
+          new TaskNotification(
+              employeeId, task.getId(), prefix + task.getTitle(), OffsetDateTime.now(clock)));
+    }
+  }
+
+  @Transactional
   @PostMapping("/tasks")
   StaffTask createTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -1173,16 +1212,20 @@ public class HotelController {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "La tarea solo puede asignarse a un empleado");
     }
-    return tasks.save(
-        new StaffTask(
-            employee.getId(),
-            input.title(),
-            input.description(),
-            TaskStatus.PENDING,
-            input.dueDate(),
-            input.priority()));
+    var task =
+        tasks.save(
+            new StaffTask(
+                employee.getId(),
+                input.title(),
+                input.description(),
+                TaskStatus.PENDING,
+                input.dueDate(),
+                input.priority()));
+    notifyTask(employee.getId(), task, "Nueva tarea asignada: ");
+    return task;
   }
 
+  @Transactional
   @PutMapping("/tasks/{id}")
   StaffTask updateTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -1191,9 +1234,17 @@ public class HotelController {
     requireUser(authorization, Role.ADMIN);
     var t =
         tasks
-            .findById(id)
+            .findLockedById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea no encontrada"));
+    final var previousEmployee = t.getEmployeeId();
+    final boolean changed =
+        (data.getStatus() != null && data.getStatus() != t.getStatus())
+            || (data.getTitle() != null && !Objects.equals(data.getTitle(), t.getTitle()))
+            || (data.getDescription() != null
+                && !Objects.equals(data.getDescription(), t.getDescription()))
+            || (data.getDueDate() != null && !Objects.equals(data.getDueDate(), t.getDueDate()))
+            || (data.getPriority() != null && !Objects.equals(data.getPriority(), t.getPriority()));
     if (data.getEmployeeId() != null) {
       var employee =
           users
@@ -1222,9 +1273,24 @@ public class HotelController {
     if (data.getPriority() != null) {
       t.setPriority(data.getPriority());
     }
-    return tasks.save(t);
+    tasks.save(t);
+    if (!Objects.equals(previousEmployee, t.getEmployeeId())) {
+      if (previousEmployee != null) {
+        taskNotifications.save(
+            new TaskNotification(
+                previousEmployee,
+                t.getId(),
+                "La tarea #" + t.getId() + " se reasignó a otro empleado.",
+                OffsetDateTime.now(clock)));
+      }
+      notifyTask(t.getEmployeeId(), t, "Nueva tarea asignada: ");
+    } else if (changed) {
+      notifyTask(t.getEmployeeId(), t, "Tu tarea se actualizó: ");
+    }
+    return t;
   }
 
+  @Transactional
   @PatchMapping("/tasks/{id}/status")
   StaffTask updateMyTaskStatus(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -1233,7 +1299,7 @@ public class HotelController {
     var employee = requireUser(authorization, Role.EMPLOYEE);
     var task =
         tasks
-            .findById(id)
+            .findLockedById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea no encontrada"));
     if (!Objects.equals(task.getEmployeeId(), employee.getId())) {
@@ -1253,6 +1319,7 @@ public class HotelController {
     return tasks.save(task);
   }
 
+  @Transactional
   @PostMapping(value = "/tasks/{id}/complete", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   ResponseEntity<?> completeTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -1262,7 +1329,7 @@ public class HotelController {
     var employee = requireUser(authorization, Role.EMPLOYEE);
     var task =
         tasks
-            .findById(id)
+            .findLockedById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea no encontrada"));
     if (!Objects.equals(task.getEmployeeId(), employee.getId())) {
@@ -1576,6 +1643,8 @@ public class HotelController {
         cancellationPolicy.rejection(r),
         cancellationPolicy.deadline(r),
         cancellationPolicy.description(),
+        r.getCancelledAt(),
+        r.getCancelledByRole(),
         r.getVersion(),
         modificationRejection(r) == null,
         modificationRejection(r),

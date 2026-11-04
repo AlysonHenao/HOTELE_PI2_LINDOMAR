@@ -179,3 +179,7 @@ Al iniciar, Hibernate agrega la versión de reserva con valor inicial cero y col
 opcionales para vincular solicitudes a la estadía y deduplicar reintentos. Los registros
 anteriores se conservan. Usar una copia de la base antes de actualizar un entorno con datos reales.
 
+### Sprint 3 — HU-22 y HU-29
+
+- **HU-22:** en **Reservas**, el administrador puede filtrar las reservas que se pueden cancelar, confirmar la operación y consultar el historial filtrando por **Cancelada**. Las nuevas cancelaciones registran fecha, hora y rol de origen. Se conserva la política del hotel, la liberación de fechas y el registro de un único reembolso interno.
+- **HU-29:** **Avisos de tareas** muestra notificaciones de asignaciones manuales o automáticas, cambios y reasignaciones. Los avisos se actualizan cada 15 segundos y se conservan hasta que su destinatario los marca como leídos.
