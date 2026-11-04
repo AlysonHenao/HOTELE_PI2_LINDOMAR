@@ -12,11 +12,13 @@ import co.lindomar.domain.Domain.TaskStatus;
 import co.lindomar.domain.Domain.UserAccount;
 import co.lindomar.repository.FinanceRepository;
 import co.lindomar.repository.ReminderRepository;
+import co.lindomar.repository.ReservationRepository;
 import co.lindomar.repository.RoomRepository;
 import co.lindomar.repository.TaskRepository;
 import co.lindomar.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.List;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,7 +26,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-/** Carga datos de demostración cuando la base de datos está vacía. */
+/** Carga datos de demostración y sincroniza las habitaciones reales de Sincelejo. */
 @Configuration
 @ConditionalOnProperty(
     name = "hotel.demo-data.enabled",
@@ -35,11 +37,14 @@ public class SeedData {
   CommandLineRunner seed(
       UserRepository users,
       RoomRepository rooms,
+      ReservationRepository reservations,
       TaskRepository tasks,
       FinanceRepository finance,
       ReminderRepository reminders,
       PasswordEncoder encoder) {
     return args -> {
+      syncSincelejoRooms(rooms, reservations);
+
       if (users.count() > 0) {
         return;
       }
@@ -72,88 +77,6 @@ public class SeedData {
               encoder.encode("demo123"),
               Role.EMPLOYEE,
               "312 555 0165"));
-      rooms.saveAll(
-          List.of(
-              new Room(
-                  "101",
-                  1,
-                  "Estándar",
-                  2,
-                  new BigDecimal("185000"),
-                  false,
-                  false,
-                  "Wi-Fi · TV · Desayuno",
-                  RoomStatus.AVAILABLE),
-              new Room(
-                  "102",
-                  1,
-                  "Estándar",
-                  2,
-                  new BigDecimal("195000"),
-                  true,
-                  true,
-                  "Wi-Fi · TV · Desayuno",
-                  RoomStatus.AVAILABLE),
-              new Room(
-                  "103",
-                  1,
-                  "Familiar",
-                  4,
-                  new BigDecimal("310000"),
-                  true,
-                  true,
-                  "Wi-Fi · TV · Minibar · Desayuno",
-                  RoomStatus.OCCUPIED),
-              new Room(
-                  "201",
-                  2,
-                  "Deluxe",
-                  2,
-                  new BigDecimal("285000"),
-                  true,
-                  false,
-                  "Wi-Fi · Smart TV · Jacuzzi",
-                  RoomStatus.AVAILABLE),
-              new Room(
-                  "202",
-                  2,
-                  "Familiar",
-                  5,
-                  new BigDecimal("360000"),
-                  true,
-                  true,
-                  "Wi-Fi · TV · Cocina · Desayuno",
-                  RoomStatus.AVAILABLE),
-              new Room(
-                  "203",
-                  2,
-                  "Deluxe",
-                  3,
-                  new BigDecimal("295000"),
-                  false,
-                  false,
-                  "Wi-Fi · Smart TV · Minibar",
-                  RoomStatus.MAINTENANCE),
-              new Room(
-                  "301",
-                  3,
-                  "Suite",
-                  2,
-                  new BigDecimal("480000"),
-                  true,
-                  true,
-                  "Wi-Fi · Jacuzzi · Minibar · Vista al mar",
-                  RoomStatus.AVAILABLE),
-              new Room(
-                  "302",
-                  3,
-                  "Suite",
-                  4,
-                  new BigDecimal("560000"),
-                  true,
-                  false,
-                  "Wi-Fi · Jacuzzi · Sala · Vista al mar",
-                  RoomStatus.AVAILABLE)));
       tasks.saveAll(
           List.of(
               new StaffTask(
@@ -221,5 +144,121 @@ public class SeedData {
                   LocalDate.now().plusDays(21),
                   ReminderStatus.PENDING)));
     };
+  }
+
+  private void syncSincelejoRooms(RoomRepository rooms, ReservationRepository reservations) {
+    record TargetRoom(
+        String number,
+        int floor,
+        String type,
+        int capacity,
+        BigDecimal price,
+        boolean balcony,
+        boolean petFriendly,
+        String services,
+        String imageUrl) {}
+
+    final var targetRooms =
+        List.of(
+            new TargetRoom(
+                "101",
+                1,
+                "Sencilla",
+                1,
+                new BigDecimal("80000"),
+                false,
+                false,
+                "Wi-Fi · Aire acondicionado · TV · Baño privado",
+                "/rooms/habitacion-1.jpg"),
+            new TargetRoom(
+                "102",
+                1,
+                "Sencilla",
+                1,
+                new BigDecimal("80000"),
+                true,
+                false,
+                "Wi-Fi · Ventilador · TV · Baño privado",
+                "/rooms/habitacion-2.jpg"),
+            new TargetRoom(
+                "201",
+                2,
+                "Doble",
+                2,
+                new BigDecimal("100000"),
+                false,
+                false,
+                "Wi-Fi · Aire acondicionado · TV · Baño privado",
+                "/rooms/habitacion-1.jpg"),
+            new TargetRoom(
+                "202",
+                2,
+                "Doble",
+                2,
+                new BigDecimal("100000"),
+                true,
+                false,
+                "Wi-Fi · Ventilador · TV · Baño privado",
+                "/hotel/lobby.jpg"),
+            new TargetRoom(
+                "203",
+                2,
+                "Familiar",
+                3,
+                new BigDecimal("180000"),
+                false,
+                false,
+                "Wi-Fi · Aire acondicionado · TV · Baño privado",
+                "/hotel/sala.jpg"),
+            new TargetRoom(
+                "301",
+                3,
+                "Familiar",
+                4,
+                new BigDecimal("240000"),
+                true,
+                false,
+                "Wi-Fi · Aire acondicionado · TV · Baño privado",
+                "/hotel/recepcion.jpg"),
+            new TargetRoom(
+                "302",
+                3,
+                "Familiar",
+                6,
+                new BigDecimal("360000"),
+                true,
+                false,
+                "Wi-Fi · Aire acondicionado · TV · Baño privado",
+                "/rooms/habitacion-2.jpg"));
+
+    final var validNumbers = new HashSet<String>();
+    for (var target : targetRooms) {
+      validNumbers.add(target.number());
+      var room = rooms.findByNumber(target.number()).orElseGet(Room::new);
+      room.setNumber(target.number());
+      room.setFloor(target.floor());
+      room.setType(target.type());
+      room.setCapacity(target.capacity());
+      room.setPrice(target.price());
+      room.setBalcony(target.balcony());
+      room.setPetFriendly(target.petFriendly());
+      room.setServices(target.services());
+      room.setImageUrl(target.imageUrl());
+      if (room.getStatus() == null || room.getStatus() == RoomStatus.OUT_OF_SERVICE) {
+        room.setStatus(RoomStatus.AVAILABLE);
+      }
+      rooms.save(room);
+    }
+
+    for (var existing : rooms.findAll()) {
+      if (!validNumbers.contains(existing.getNumber())) {
+        if (!reservations.existsByRoomId(existing.getId())) {
+          rooms.delete(existing);
+        } else {
+          existing.setStatus(RoomStatus.OUT_OF_SERVICE);
+          rooms.save(existing);
+        }
+      }
+    }
   }
 }

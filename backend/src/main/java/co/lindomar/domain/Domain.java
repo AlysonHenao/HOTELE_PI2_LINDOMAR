@@ -244,6 +244,22 @@ public final class Domain {
       this.status = status;
     }
 
+    /** Inicializa Room con fotografía para la gestión del hotel. */
+    public Room(
+        String number,
+        int floor,
+        String type,
+        int capacity,
+        BigDecimal price,
+        boolean balcony,
+        boolean petFriendly,
+        String services,
+        RoomStatus status,
+        String imageUrl) {
+      this(number, floor, type, capacity, price, balcony, petFriendly, services, status);
+      this.imageUrl = imageUrl;
+    }
+
     public Long getId() {
       return id;
     }

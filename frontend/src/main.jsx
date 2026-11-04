@@ -815,7 +815,7 @@ function GuestHome({ user, go }) {
     <>
       <section className="welcome">
         <div>
-          <span className="eyebrow">TU RINCÓN CARIBEÑO</span>
+          <span className="eyebrow">HOSPITALIDAD Y CONFORT</span>
           <h1>Hola, {user.name.split(' ')[0]}</h1>
           <p>
             Tu habitación, tus planes y tu ritmo. Desde aquí controlas todo lo que hace especial tu
@@ -901,6 +901,94 @@ function GuestHome({ user, go }) {
   );
 }
 
+const ROOM_IMAGES = {
+  101: '/rooms/habitacion-1.jpg',
+  102: '/rooms/habitacion-2.jpg',
+  201: '/rooms/habitacion-1.jpg',
+  202: '/hotel/lobby.jpg',
+  203: '/hotel/sala.jpg',
+  301: '/hotel/recepcion.jpg',
+  302: '/rooms/habitacion-2.jpg',
+};
+
+const SINCELEJO_ROOMS = {
+  101: {
+    type: 'Sencilla',
+    capacity: 1,
+    price: 80000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/rooms/habitacion-1.jpg',
+  },
+  102: {
+    type: 'Sencilla',
+    capacity: 1,
+    price: 80000,
+    services: 'Wi-Fi · Ventilador · TV · Baño privado',
+    imageUrl: '/rooms/habitacion-2.jpg',
+  },
+  201: {
+    type: 'Doble',
+    capacity: 2,
+    price: 100000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/rooms/habitacion-1.jpg',
+  },
+  202: {
+    type: 'Doble',
+    capacity: 2,
+    price: 100000,
+    services: 'Wi-Fi · Ventilador · TV · Baño privado',
+    imageUrl: '/hotel/lobby.jpg',
+  },
+  203: {
+    type: 'Familiar',
+    capacity: 3,
+    price: 180000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/hotel/sala.jpg',
+  },
+  301: {
+    type: 'Familiar',
+    capacity: 4,
+    price: 240000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/hotel/recepcion.jpg',
+  },
+  302: {
+    type: 'Familiar',
+    capacity: 6,
+    price: 360000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/rooms/habitacion-2.jpg',
+  },
+};
+
+const normalizeRoom = (room) => {
+  if (!room) return room;
+  const canonical = SINCELEJO_ROOMS[String(room.number)];
+  if (!canonical) {
+    return {
+      ...room,
+      imageUrl: room.imageUrl || '/rooms/habitacion-1.jpg',
+    };
+  }
+  const isCustomUrl =
+    room.imageUrl && !room.imageUrl.startsWith('/rooms/') && !room.imageUrl.startsWith('/hotel/');
+  return {
+    ...room,
+    type: canonical.type || room.type,
+    capacity: canonical.capacity || room.capacity,
+    price: canonical.price ?? room.price,
+    services: canonical.services || room.services,
+    imageUrl: isCustomUrl ? room.imageUrl : canonical.imageUrl || room.imageUrl,
+  };
+};
+
+const normalizeRoomsList = (list) => {
+  if (!Array.isArray(list)) return [];
+  return list.filter((r) => SINCELEJO_ROOMS[String(r.number)]).map(normalizeRoom);
+};
+
 function Rooms({ user, notify }) {
   const [rooms, setRooms] = useState([]);
   const [allRooms, setAllRooms] = useState([]);
@@ -942,7 +1030,7 @@ function Rooms({ user, notify }) {
     try {
       const results = await api(`/rooms?${p}`);
       if (version === searchVersion.current) {
-        setRooms(results);
+        setRooms(normalizeRoomsList(results));
         setSearchedDates({ checkIn: criteria.checkIn, checkOut: criteria.checkOut });
       }
     } catch (err) {
@@ -953,7 +1041,9 @@ function Rooms({ user, notify }) {
   }, []);
   useEffect(() => {
     load(initialFilters.current);
-    api('/rooms/all').then(setAllRooms);
+    api('/rooms/all')
+      .then((data) => setAllRooms(normalizeRoomsList(data)))
+      .catch(() => {});
   }, [load]);
 
   return (
@@ -1001,10 +1091,9 @@ function Rooms({ user, notify }) {
             onChange={(e) => setFilters({ ...filters, type: e.target.value })}
           >
             <option value="">Todos</option>
-            <option>Estándar</option>
+            <option>Sencilla</option>
+            <option>Doble</option>
             <option>Familiar</option>
-            <option>Deluxe</option>
-            <option>Suite</option>
           </select>
         </label>
         <label>
@@ -1014,9 +1103,11 @@ function Rooms({ user, notify }) {
             onChange={(e) => setFilters({ ...filters, capacity: e.target.value })}
           >
             <option value="">Todas</option>
+            <option value="1">1+</option>
             <option value="2">2+</option>
             <option value="3">3+</option>
             <option value="4">4+</option>
+            <option value="6">6</option>
           </select>
         </label>
         <label>
@@ -1026,9 +1117,10 @@ function Rooms({ user, notify }) {
             onChange={(e) => setFilters({ ...filters, maxPrice: e.target.value })}
           >
             <option value="">Sin límite</option>
-            <option value="250000">$250.000</option>
-            <option value="350000">$350.000</option>
-            <option value="500000">$500.000</option>
+            <option value="100000">$100.000</option>
+            <option value="200000">$200.000</option>
+            <option value="300000">$300.000</option>
+            <option value="400000">$400.000</option>
           </select>
         </label>
         <div className="checks">
@@ -1096,27 +1188,38 @@ function Rooms({ user, notify }) {
 }
 
 function RoomCard({ room, onSelect }) {
-  const typeClass = room.type.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const normalized = normalizeRoom(room);
+  const typeClass = (normalized.type || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const photo = normalized.imageUrl || ROOM_IMAGES[normalized.number] || '/rooms/habitacion-1.jpg';
+
   return (
     <article className="room-card">
       <div className={`room-visual type-${typeClass}`}>
-        <span>{room.type}</span>
-        <BedDouble size={54} />
-        <small>Habitación {room.number}</small>
+        <img
+          src={photo}
+          alt={`Habitación ${normalized.number}`}
+          className="room-card-photo"
+          loading="lazy"
+        />
+        <span className="room-type-tag">{normalized.type}</span>
+        <small className="room-number-tag">Habitación {normalized.number}</small>
       </div>
       <div className="room-body">
         <div>
-          <h3>{room.type}</h3>
+          <h3>{normalized.type}</h3>
           <span className="status available">Disponible</span>
         </div>
         <p>
           <Users size={16} />
-          Hasta {room.capacity} huéspedes
+          Hasta {normalized.capacity} huésped{normalized.capacity > 1 ? 'es' : ''}
         </p>
         <div className="tags">
-          {room.balcony && <span>Balcón</span>}
-          {room.petFriendly && <span>Pet-friendly</span>}
-          {(room.services || '')
+          {normalized.balcony && <span>Balcón</span>}
+          {normalized.petFriendly && <span>Pet-friendly</span>}
+          {(normalized.services || '')
             .split(' · ')
             .filter(Boolean)
             .map((s) => (
@@ -1125,10 +1228,10 @@ function RoomCard({ room, onSelect }) {
         </div>
         <div className="room-foot">
           <span>
-            <strong>{money(room.price)}</strong>
+            <strong>{money(normalized.price)}</strong>
             <small>por noche</small>
           </span>
-          <button className="primary" onClick={() => onSelect(room)}>
+          <button className="primary" onClick={() => onSelect(normalized)}>
             Ver detalles
           </button>
         </div>
@@ -1196,16 +1299,25 @@ function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
   const [attempt, setAttempt] = useState(0);
   const [booking, setBooking] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+  const [activePhoto, setActivePhoto] = useState('room');
+  const [photoIsPortrait, setPhotoIsPortrait] = useState(false);
   useEffect(() => {
     let active = true;
     setDetail(null);
     setError('');
     setImageFailed(false);
+    setActivePhoto('room');
+    setPhotoIsPortrait(false);
     api(
       `/rooms/${roomId}?${new URLSearchParams({ checkIn: dates.checkIn, checkOut: dates.checkOut })}`
     )
       .then((data) => {
-        if (active) setDetail(data);
+        if (active) {
+          const normRoom = normalizeRoom(data?.room);
+          const nights = data?.nights || 1;
+          const total = normRoom?.price ? normRoom.price * nights : data?.total;
+          setDetail({ ...data, room: normRoom, total });
+        }
       })
       .catch((err) => {
         if (active) setError(err.message);
@@ -1214,7 +1326,21 @@ function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
       active = false;
     };
   }, [roomId, dates.checkIn, dates.checkOut, attempt]);
-  const room = detail?.room;
+  const room = detail?.room ? normalizeRoom(detail.room) : null;
+  const photo =
+    room?.imageUrl || (room ? ROOM_IMAGES[room.number] : null) || '/rooms/habitacion-1.jpg';
+  const socialPhoto =
+    photo === '/hotel/lobby.jpg' || photo === '/hotel/sala.jpg'
+      ? photo === '/hotel/lobby.jpg'
+        ? '/hotel/sala.jpg'
+        : '/hotel/lobby.jpg'
+      : '/hotel/lobby.jpg';
+  const currentPhotoSrc =
+    activePhoto === 'bathroom'
+      ? '/rooms/bano-privado.jpg'
+      : activePhoto === 'social'
+        ? socialPhoto
+        : photo;
   if (booking && room)
     return (
       <ReserveModal
@@ -1258,13 +1384,67 @@ function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
           <p role="status">Cargando detalles y disponibilidad…</p>
         ) : (
           <>
-            {room.imageUrl && !imageFailed ? (
-              <img
-                className="room-photo"
-                src={room.imageUrl}
-                alt={`Habitación ${room.number}, ${room.type}`}
-                onError={() => setImageFailed(true)}
-              />
+            {!imageFailed ? (
+              <div className="room-gallery">
+                <div className={`room-photo-frame ${photoIsPortrait ? 'has-portrait' : ''}`}>
+                  {photoIsPortrait && (
+                    <div
+                      className="room-photo-backdrop"
+                      style={{ backgroundImage: `url(${currentPhotoSrc})` }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <img
+                    className={`room-photo ${photoIsPortrait ? 'is-portrait' : ''}`}
+                    src={currentPhotoSrc}
+                    alt={
+                      activePhoto === 'bathroom'
+                        ? `Baño privado - Habitación ${room.number}`
+                        : activePhoto === 'social'
+                          ? `Zonas sociales - Hotel Lindomar Sincelejo`
+                          : `Habitación ${room.number}, ${room.type}`
+                    }
+                    onLoad={(e) =>
+                      setPhotoIsPortrait(
+                        e.currentTarget.naturalHeight > e.currentTarget.naturalWidth
+                      )
+                    }
+                    onError={() => setImageFailed(true)}
+                  />
+                </div>
+                <div className="room-gallery-tabs" role="group" aria-label="Fotos de la habitación">
+                  <button
+                    type="button"
+                    className={`gallery-pill ${activePhoto === 'room' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActivePhoto('room');
+                      setPhotoIsPortrait(false);
+                    }}
+                  >
+                    Habitación
+                  </button>
+                  <button
+                    type="button"
+                    className={`gallery-pill ${activePhoto === 'bathroom' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActivePhoto('bathroom');
+                      setPhotoIsPortrait(true);
+                    }}
+                  >
+                    Baño privado
+                  </button>
+                  <button
+                    type="button"
+                    className={`gallery-pill ${activePhoto === 'social' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActivePhoto('social');
+                      setPhotoIsPortrait(false);
+                    }}
+                  >
+                    Zonas sociales
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="room-photo-placeholder">
                 <BedDouble size={48} />
@@ -2688,12 +2868,12 @@ function AdminHome({ notify }) {
 const EMPTY_ROOM = {
   number: '',
   floor: 1,
-  type: 'Estándar',
-  capacity: 2,
-  price: 200000,
+  type: 'Sencilla',
+  capacity: 1,
+  price: 80000,
   balcony: false,
   petFriendly: false,
-  services: 'Wi-Fi · TV',
+  services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
   imageUrl: '',
   status: 'AVAILABLE',
 };
@@ -2916,13 +3096,13 @@ function RoomModal({ room, isNew, onClose, onSave }) {
         <h2>{isNew ? 'Registrar habitación' : `Habitación ${data.number}`}</h2>
         <div className="form-grid">
           <label className="full">
-            Fotografía (URL HTTPS)
+            Fotografía (URL HTTPS o ruta local /rooms/...)
             <input
-              type="url"
+              type="text"
               maxLength={2048}
               value={data.imageUrl || ''}
               onChange={(e) => set('imageUrl', e.target.value)}
-              placeholder="https://…"
+              placeholder="Ej: /rooms/habitacion-1.jpg o https://…"
             />
           </label>
           <label>
@@ -2946,10 +3126,9 @@ function RoomModal({ room, isNew, onClose, onSave }) {
           <label>
             Tipo
             <select value={data.type} onChange={(e) => set('type', e.target.value)}>
-              <option>Estándar</option>
+              <option>Sencilla</option>
+              <option>Doble</option>
               <option>Familiar</option>
-              <option>Deluxe</option>
-              <option>Suite</option>
             </select>
           </label>
           <label>
