@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -92,6 +93,77 @@ class StaffSprint2IntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validPayload))
         .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void taskNoticesArePrivatePersistentAndAcknowledgeable() throws Exception {
+    var employee = user("empleado@lindomar.co");
+    var other = user("ana@lindomar.co");
+    var adminAuth = auth("admin@lindomar.co");
+    var employeeAuth = auth("empleado@lindomar.co");
+    var otherAuth = auth("ana@lindomar.co");
+    var created =
+        body(
+            mvc.perform(
+                    post("/api/tasks")
+                        .header("Authorization", adminAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(assignmentPayload(employee.getId(), "Revisar 201", "Media")))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    long taskId = created.path("id").asLong();
+    var matchingNotices = "$[?(@.taskId == " + taskId + ")]";
+    var notices =
+        body(
+            mvc.perform(get("/api/tasks/notifications").header("Authorization", employeeAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(matchingNotices).isNotEmpty())
+                .andExpect(jsonPath("$[0].taskId").value(taskId))
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    long noticeId = notices.get(0).path("id").asLong();
+    mvc.perform(get("/api/tasks/notifications").header("Authorization", otherAuth))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath(matchingNotices).isEmpty());
+    mvc.perform(get("/api/tasks/notifications").header("Authorization", adminAuth))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            patch("/api/tasks/notifications/{id}/read", noticeId)
+                .header("Authorization", otherAuth))
+        .andExpect(status().isNotFound());
+    mvc.perform(
+            patch("/api/tasks/notifications/{id}/read", noticeId)
+                .header("Authorization", employeeAuth))
+        .andExpect(status().isNoContent());
+    mvc.perform(
+            put("/api/tasks/{id}", taskId)
+                .header("Authorization", adminAuth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"priority\":\"Media\"}"))
+        .andExpect(status().isOk());
+    mvc.perform(get("/api/tasks/notifications").header("Authorization", employeeAuth))
+        .andExpect(jsonPath(matchingNotices).isEmpty());
+    mvc.perform(
+            put("/api/tasks/{id}", taskId)
+                .header("Authorization", adminAuth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"priority\":\"Alta\"}"))
+        .andExpect(status().isOk());
+    mvc.perform(
+            put("/api/tasks/{id}", taskId)
+                .header("Authorization", adminAuth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"employeeId\":" + other.getId() + "}"))
+        .andExpect(status().isOk());
+    mvc.perform(get("/api/tasks/notifications").header("Authorization", employeeAuth))
+        .andExpect(
+            jsonPath("$[0].message").value("La tarea #" + taskId + " se reasignó a otro empleado."))
+        .andExpect(jsonPath("$[1].message").value("Tu tarea se actualizó: Revisar 201"));
+    mvc.perform(get("/api/tasks/notifications").header("Authorization", otherAuth))
+        .andExpect(jsonPath("$[0].taskId").value(taskId));
   }
 
   @Test
