@@ -337,6 +337,34 @@ public class HotelController {
     return publicUser(requireUser(authorization, null));
   }
 
+  /** HU-03: Permite al usuario autenticado modificar su información personal permitida. */
+  @Transactional
+  @PutMapping("/auth/profile")
+  PublicUser updateProfile(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @Valid @RequestBody ProfileUpdateRequest data) {
+    var user = requireUser(authorization, null);
+    if (data.name() != null) {
+      if (data.name().isBlank() || data.name().length() < 2) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "El nombre debe tener al menos 2 caracteres");
+      }
+      user.setName(data.name().trim());
+    }
+    if (data.phone() != null) {
+      user.setPhone(data.phone().trim());
+    }
+    if (data.password() != null && !data.password().isBlank()) {
+      if (data.password().length() < 6 || data.password().length() > 72) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "La contraseña debe tener entre 6 y 72 caracteres");
+      }
+      user.setPassword(passwords.encode(data.password()));
+    }
+    var saved = users.save(user);
+    return publicUser(saved);
+  }
+
   @Transactional
   @PostMapping("/auth/logout")
   ResponseEntity<Void> logout(

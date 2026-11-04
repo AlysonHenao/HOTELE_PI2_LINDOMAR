@@ -7,6 +7,7 @@ import {
   BellRing,
   CalendarClock,
   CalendarDays,
+  AlertCircle,
   CheckCircle2,
   CircleDollarSign,
   Camera,
@@ -32,6 +33,7 @@ import {
   Trash2,
   TrendingDown,
   TrendingUp,
+  User,
   UserPlus,
   Users,
   WalletCards,
@@ -433,6 +435,7 @@ const navByRole = {
     ['rooms', 'Habitaciones', BedDouble],
     ['reservations', 'Mis reservas', CalendarDays],
     ['requests', 'Atención', ConciergeBell],
+    ['profile', 'Mi perfil', User],
     ['assistant', 'Asistente', MessageCircle],
   ],
   EMPLOYEE: [
@@ -533,13 +536,25 @@ function Shell({ user, onLogout, theme, toggleTheme, onUserUpdate }) {
             </button>
           ))}
         </nav>
-        <div className="sidebar-foot">
+        <div
+          className="sidebar-foot"
+          onClick={() => user.role === 'GUEST' && setPage('profile')}
+          style={{ cursor: user.role === 'GUEST' ? 'pointer' : 'default' }}
+          title={user.role === 'GUEST' ? 'Ir a mi perfil' : undefined}
+        >
           <div className="avatar">{initials(user.name)}</div>
           <div>
             <strong>{user.name}</strong>
             <small>{label[user.role]}</small>
           </div>
-          <button title="Cerrar sesión" onClick={onLogout} aria-label="Cerrar sesión">
+          <button
+            title="Cerrar sesión"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLogout();
+            }}
+            aria-label="Cerrar sesión"
+          >
             <LogOut size={18} />
           </button>
         </div>
@@ -566,7 +581,14 @@ function Shell({ user, onLogout, theme, toggleTheme, onUserUpdate }) {
             >
               {theme === 'light' ? <Moon /> : <Sun />}
             </button>
-            <div className="avatar">{user.name[0]}</div>
+            <div
+              className="avatar"
+              onClick={() => user.role === 'GUEST' && setPage('profile')}
+              style={{ cursor: user.role === 'GUEST' ? 'pointer' : 'default' }}
+              title={user.role === 'GUEST' ? 'Ir a mi perfil' : user.name}
+            >
+              {initials(user.name)}
+            </div>
           </div>
         </header>
         <div className="content">
@@ -783,10 +805,16 @@ function GuestHome({ user, go }) {
             Tu habitación, tus planes y tu ritmo. Desde aquí controlas todo lo que hace especial tu
             estadía en Sincelejo.
           </p>
-          <button className="primary" onClick={() => go('rooms')}>
-            <Search size={18} />
-            Explorar habitaciones
-          </button>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
+            <button className="primary" onClick={() => go('rooms')}>
+              <Search size={18} />
+              Explorar habitaciones
+            </button>
+            <button className="secondary" onClick={() => go('profile')}>
+              <User size={18} />
+              Mi perfil
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1696,9 +1724,25 @@ function ReservationChangeModal({ reservation, onClose, onSaved }) {
           </label>
         </fieldset>
         {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
+          <div
+            className="form-error"
+            role="alert"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '12px 16px',
+              borderRadius: 'var(--r-md)',
+              background: '#fef2f2',
+              color: '#b91c1c',
+              border: '1px solid #fecaca',
+              margin: '8px 0 16px',
+              fontWeight: 500,
+            }}
+          >
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <span>{error}</span>
+          </div>
         )}
         {quote && (
           <div className="price-summary reservation-change-summary" role="status">
@@ -2517,22 +2561,47 @@ function AdminHome({ notify }) {
               {d.suggestedCleaners === 1 ? 'persona de aseo' : 'personas de aseo'}
             </h3>
             <p>
-              {(d.cleaningRationale || '')
-                .replace(/\s*\(ratio:[^)]*\)/gi, '')
-                .replace(/Para una ocupación del/gi, 'Con el hotel al')
-                .replace(/Para una ocupación/gi, 'Con el hotel al')
-                .replace(/con 0 salida\(s\) de habitación,/gi, 'y sin salidas de habitaciones hoy,')
-                .replace(/al del/gi, 'al')
-                .replace(
-                  /se recomiendan 1 persona\(s\) de aseo/gi,
+              {(() => {
+                let text = d.cleaningRationale || '';
+                text = text.replace(/\s*\(ratio:[^)]*\)/gi, '');
+                text = text.replace(/Para una ocupación del/gi, 'Con el hotel al');
+                text = text.replace(/Para una ocupación/gi, 'Con el hotel al');
+                text = text.replace(
+                  /con 0 salida\(s\) de habitación,?/gi,
+                  'y sin salidas de habitaciones hoy,'
+                );
+                text = text.replace(
+                  /con 0 salidas de habitación,?/gi,
+                  'y sin salidas de habitaciones hoy,'
+                );
+                text = text.replace(
+                  /con 1 salida\(s\) de habitación,?/gi,
+                  'y 1 habitación por entregar hoy,'
+                );
+                text = text.replace(
+                  /con (\d+) salida\(s\) de habitación,?/gi,
+                  'y $1 habitaciones por entregar hoy,'
+                );
+                text = text.replace(/al del/gi, 'al');
+                text = text.replace(/1 persona\(s\) de aseo/gi, '1 persona de aseo');
+                text = text.replace(/(\d+) persona\(s\) de aseo/gi, '$1 personas de aseo');
+                text = text.replace(
+                  /se recomiendan 1 persona de aseo/gi,
                   'se sugiere programar 1 persona de aseo'
-                )
-                .replace(/se recomiendan/gi, 'se sugiere programar')
-                .replace(
-                  /persona\(s\) de aseo/gi,
-                  d.suggestedCleaners === 1 ? 'persona de aseo' : 'personas de aseo'
-                )
-                .trim() || 'Calculado según la ocupación y la temporada.'}
+                );
+                text = text.replace(
+                  /se recomiendan (\d+) personas de aseo/gi,
+                  'se sugiere programar $1 personas de aseo'
+                );
+                text = text.replace(/se recomiendan/gi, 'se sugiere programar');
+                if (!text.trim() || text.includes('ratio')) {
+                  const cleaners = d.suggestedCleaners || 1;
+                  const cText =
+                    cleaners === 1 ? '1 persona de aseo' : `${cleaners} personas de aseo`;
+                  text = `Con el hotel al ${d.occupancyRate || 0}% de ocupación y sin salidas hoy, se sugiere programar ${cText} para atender la limpieza.`;
+                }
+                return text.trim();
+              })()}
             </p>
           </div>
         </div>
@@ -2979,24 +3048,19 @@ function AdminReservations({ notify }) {
     }
   };
   const saveModification = async (formData) => {
-    setError('');
-    try {
-      await api(`/reservations/${formData.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          roomId: formData.roomId,
-          checkIn: formData.checkIn,
-          checkOut: formData.checkOut,
-          guests: formData.guests,
-          notes: formData.notes,
-        }),
-      });
-      notify(`Reserva #${formData.id} modificada con éxito`);
-      setModifying(null);
-      await load();
-    } catch (err) {
-      setError(err.message);
-    }
+    await api(`/reservations/${formData.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        roomId: formData.roomId,
+        checkIn: formData.checkIn,
+        checkOut: formData.checkOut,
+        guests: formData.guests,
+        notes: formData.notes,
+      }),
+    });
+    notify(`Reserva #${formData.id} modificada con éxito`);
+    setModifying(null);
+    await load();
   };
 
   const filtered = useMemo(
@@ -4418,6 +4482,7 @@ function App() {
             onLogout={logout}
             theme={theme}
             toggleTheme={toggleTheme}
+            onUserUpdate={(updated) => setUser((prev) => ({ ...prev, ...updated }))}
           />
         ) : (
           <p role="alert">
