@@ -7,6 +7,7 @@ import {
   BellRing,
   CalendarClock,
   CalendarDays,
+  AlertCircle,
   CheckCircle2,
   CircleDollarSign,
   Camera,
@@ -32,6 +33,7 @@ import {
   Trash2,
   TrendingDown,
   TrendingUp,
+  User,
   UserPlus,
   Users,
   WalletCards,
@@ -67,7 +69,8 @@ const money = (v) =>
   new Intl.NumberFormat('es-CO', {
     style: 'currency',
     currency: 'COP',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(v || 0);
 const label = {
   GUEST: 'Huésped',
@@ -102,6 +105,19 @@ const future = (days = 1) => {
   d.setDate(d.getDate() + days);
   return localDate(d);
 };
+/** Fecha del hotel para que la política no dependa de la zona del dispositivo del huésped. */
+const hotelDate = (offset = 0) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const part = (type) => parts.find((value) => value.type === type).value;
+  const date = new Date(`${part('year')}-${part('month')}-${part('day')}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+};
 const initials = (name) =>
   name
     .split(' ')
@@ -110,6 +126,34 @@ const initials = (name) =>
     .join('');
 /** Días restantes hasta una fecha; negativo si ya venció. */
 const daysUntil = (d) => Math.ceil((new Date(`${d}T12:00:00`) - new Date()) / 86400000);
+
+/** Bloquea clics repetidos y conserva un error visible cuando falla un pago. */
+function useReminderPayment(notify, reload) {
+  const lock = useRef(false);
+  const [payingId, setPayingId] = useState(null);
+  const [paymentError, setPaymentError] = useState('');
+  const pay = async (reminder) => {
+    if (lock.current) return;
+    if (
+      !confirm(`¿Registrar el gasto de ${money(reminder.estimatedAmount)} por ${reminder.concept}?`)
+    )
+      return;
+    lock.current = true;
+    setPayingId(reminder.id);
+    setPaymentError('');
+    try {
+      await api(`/reminders/${reminder.id}/pay`, { method: 'POST' });
+      notify('Gasto registrado y descontado del balance');
+      await reload();
+    } catch (error) {
+      setPaymentError(error.message);
+    } finally {
+      lock.current = false;
+      setPayingId(null);
+    }
+  };
+  return { pay, payingId, paymentError };
+}
 
 function Logo({ className = '', light = false }) {
   return (
@@ -160,7 +204,7 @@ function Toast({ toast, onClose }) {
 /* ---------- Autenticación ---------- */
 function Login({ onLogin }) {
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ email: 'huesped@lindomar.co', password: 'demo123' });
+  const [form, setForm] = useState({ email: '', password: '' });
   const [signup, setSignup] = useState({ name: '', email: '', password: '', phone: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -179,12 +223,6 @@ function Login({ onLogin }) {
       setLoading(false);
     }
   };
-
-  const demos = [
-    ['Huésped', 'huesped@lindomar.co'],
-    ['Empleado', 'empleado@lindomar.co'],
-    ['Administrador', 'admin@lindomar.co'],
-  ];
 
   return (
     <div className="login-page">
@@ -259,15 +297,11 @@ function Login({ onLogin }) {
 
       <section className="login-panel">
         <form className="login-card" onSubmit={submit}>
-          <div className="brand mobile-brand">
+          <div className="brand login-brand">
             <Logo />
             <span>
               LINDOMAR<small>HOTEL &amp; DESCANSO</small>
             </span>
-          </div>
-          <div className="brand" style={{ justifyContent: 'center', marginBottom: 28 }}>
-            <Logo />
-            <span>LINDOMAR</span>
           </div>
           <span className="eyebrow green">
             {mode === 'login' ? 'BIENVENIDO DE NUEVO' : 'CREA TU CUENTA'}
@@ -372,24 +406,6 @@ function Login({ onLogin }) {
               {mode === 'login' ? 'Regístrate' : 'Inicia sesión'}
             </button>
           </p>
-
-          {mode === 'login' && (
-            <div className="demo">
-              <span>O entra con una cuenta de demostración</span>
-              <div>
-                {demos.map(([name, email]) => (
-                  <button
-                    type="button"
-                    key={email}
-                    onClick={() => setForm({ email, password: 'demo123' })}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              <small>Contraseña: demo123</small>
-            </div>
-          )}
         </form>
 
         <span
@@ -419,11 +435,14 @@ const navByRole = {
     ['rooms', 'Habitaciones', BedDouble],
     ['reservations', 'Mis reservas', CalendarDays],
     ['requests', 'Atención', ConciergeBell],
+    ['profile', 'Mi perfil', User],
     ['assistant', 'Asistente', MessageCircle],
   ],
   EMPLOYEE: [
     ['tasks', 'Mis tareas', ClipboardCheck],
+    ['task-notifications', 'Avisos de tareas', Bell],
     ['staff-requests', 'Solicitudes', ConciergeBell],
+    ['profile', 'Mi perfil', User],
   ],
   ADMIN: [
     ['admin-home', 'Resumen', LayoutDashboard],
@@ -433,15 +452,33 @@ const navByRole = {
     ['admin-users', 'Equipo y usuarios', Users],
     ['admin-tasks', 'Tareas', ClipboardCheck],
     ['finance', 'Finanzas', CircleDollarSign],
+    ['profile', 'Mi perfil', User],
   ],
 };
 
-function Shell({ user, onLogout, theme, toggleTheme }) {
+function Shell({ user, onLogout, theme, toggleTheme, onUserUpdate }) {
   const [page, setPage] = useState(navByRole[user.role][0][0]);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const [openRequests, setOpenRequests] = useState(0);
+  const [taskNotices, setTaskNotices] = useState([]);
+  const [noticeError, setNoticeError] = useState('');
   const notify = useCallback((text) => setToast({ text }), []);
+
+  const refreshNotices = useCallback(async () => {
+    try {
+      setTaskNotices(await api('/tasks/notifications'));
+      setNoticeError('');
+    } catch (err) {
+      setNoticeError(err.message);
+    }
+  }, []);
+  useEffect(() => {
+    if (user.role !== 'EMPLOYEE') return;
+    refreshNotices();
+    const timer = setInterval(refreshNotices, 15000);
+    return () => clearInterval(timer);
+  }, [user.role, refreshNotices]);
 
   // Contador de solicitudes abiertas para el badge del menú (roles de staff).
   const refreshBadge = useCallback(() => {
@@ -452,6 +489,8 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
   }, [user.role]);
   useEffect(() => {
     refreshBadge();
+    window.addEventListener('lindomar-requests-changed', refreshBadge);
+    return () => window.removeEventListener('lindomar-requests-changed', refreshBadge);
   }, [refreshBadge, page]);
 
   return (
@@ -482,7 +521,9 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
                 setOpen(false);
               }}
               aria-current={page === id ? 'page' : undefined}
-              aria-label={name}
+              aria-label={
+                id === 'task-notifications' ? `${name}, ${taskNotices.length} sin leer` : name
+              }
             >
               <Icon size={19} aria-hidden="true" />
               {name}
@@ -491,16 +532,31 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
                   {openRequests}
                 </span>
               )}
+              {id === 'task-notifications' && taskNotices.length > 0 && (
+                <span className="nav-badge">{taskNotices.length}</span>
+              )}
             </button>
           ))}
         </nav>
-        <div className="sidebar-foot">
+        <div
+          className="sidebar-foot"
+          onClick={() => setPage('profile')}
+          style={{ cursor: 'pointer' }}
+          title="Ir a mi perfil"
+        >
           <div className="avatar">{initials(user.name)}</div>
           <div>
             <strong>{user.name}</strong>
             <small>{label[user.role]}</small>
           </div>
-          <button title="Cerrar sesión" onClick={onLogout} aria-label="Cerrar sesión">
+          <button
+            title="Cerrar sesión"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLogout();
+            }}
+            aria-label="Cerrar sesión"
+          >
             <LogOut size={18} />
           </button>
         </div>
@@ -527,16 +583,48 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
             >
               {theme === 'light' ? <Moon /> : <Sun />}
             </button>
-            <div className="avatar">{user.name[0]}</div>
+            <div
+              className="avatar"
+              onClick={() => setPage('profile')}
+              style={{ cursor: 'pointer' }}
+              title={`Ir a mi perfil (${user.name})`}
+            >
+              {initials(user.name)}
+            </div>
           </div>
         </header>
         <div className="content">
           {user.role === 'GUEST' ? (
-            <Guest page={page} user={user} notify={notify} go={setPage} />
+            <Guest
+              page={page}
+              user={user}
+              notify={notify}
+              go={setPage}
+              onUserUpdate={onUserUpdate}
+            />
+          ) : page === 'task-notifications' && user.role === 'EMPLOYEE' ? (
+            <TaskNotifications
+              items={taskNotices}
+              loadError={noticeError}
+              onRead={refreshNotices}
+              goToTasks={() => setPage('tasks')}
+            />
           ) : user.role === 'EMPLOYEE' ? (
-            <Employee page={page} user={user} notify={notify} onChange={refreshBadge} />
+            <Employee
+              page={page}
+              user={user}
+              notify={notify}
+              onChange={refreshBadge}
+              onUserUpdate={onUserUpdate}
+            />
           ) : user.role === 'ADMIN' ? (
-            <Admin page={page} user={user} notify={notify} onChange={refreshBadge} />
+            <Admin
+              page={page}
+              user={user}
+              notify={notify}
+              onChange={refreshBadge}
+              onUserUpdate={onUserUpdate}
+            />
           ) : (
             <p role="alert">Tu cuenta no tiene un rol válido.</p>
           )}
@@ -548,12 +636,172 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
 }
 
 /* ============ HUÉSPED ============ */
-function Guest({ page, user, notify, go }) {
+function Guest({ page, user, notify, go, onUserUpdate }) {
   if (page === 'home') return <GuestHome user={user} go={go} />;
   if (page === 'rooms') return <Rooms user={user} notify={notify} />;
   if (page === 'reservations') return <Reservations user={user} notify={notify} />;
   if (page === 'requests') return <Requests user={user} notify={notify} />;
+  if (page === 'profile')
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <Assistant />;
+}
+
+function UserProfile({ user, notify, onUserUpdate }) {
+  const [data, setData] = useState({
+    name: user.name || '',
+    email: user.email || '',
+    phone: user.phone || '',
+    password: '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const set = (k, v) => {
+    setData((d) => ({ ...d, [k]: v }));
+    setSavedSuccess(false);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    setSavedSuccess(false);
+    try {
+      const payload = {
+        name: data.name,
+        phone: data.phone,
+      };
+      if (data.password && data.password.trim()) {
+        payload.password = data.password.trim();
+      }
+      const updated = await api('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      notify('Información personal actualizada con éxito');
+      setSavedSuccess(true);
+      if (onUserUpdate) onUserUpdate(updated);
+      setData((d) => ({ ...d, password: '' }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="profile-container" style={{ maxWidth: '640px', margin: '0 auto' }}>
+      <div className="section-head">
+        <div>
+          <h3>Mi perfil</h3>
+          <p className="muted">Consulta y actualiza tu información de contacto personal.</p>
+        </div>
+      </div>
+
+      {savedSuccess && (
+        <div
+          className="form-success"
+          style={{
+            background: 'var(--leaf-50, #e8f5e9)',
+            color: 'var(--leaf-700, #2e7d32)',
+            padding: '12px 16px',
+            borderRadius: 'var(--r-md)',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <CheckCircle2 size={18} />
+          <span>Tu información ha sido actualizada exitosamente en el sistema.</span>
+        </div>
+      )}
+
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="panel" style={{ padding: '24px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            marginBottom: '24px',
+            paddingBottom: '20px',
+            borderBottom: '1px solid var(--line)',
+          }}
+        >
+          <div className="avatar large" style={{ width: '56px', height: '56px', fontSize: '18px' }}>
+            {initials(user.name)}
+          </div>
+          <div>
+            <h3 style={{ margin: '0 0 4px' }}>{user.name}</h3>
+            <span className={`role-badge ${user.role?.toLowerCase()}`}>
+              {label[user.role] || user.role}
+            </span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '16px' }}>
+          <label>
+            Nombre completo
+            <input
+              required
+              minLength={2}
+              value={data.name}
+              onChange={(e) => set('name', e.target.value)}
+              placeholder="Tu nombre completo"
+            />
+          </label>
+
+          <label>
+            Correo electrónico
+            <input
+              type="email"
+              value={data.email}
+              disabled
+              style={{ opacity: 0.8, cursor: 'not-allowed' }}
+            />
+            <small className="muted">
+              El correo electrónico es tu identificador de acceso y no puede modificarse.
+            </small>
+          </label>
+
+          <label>
+            Teléfono de contacto
+            <input
+              type="tel"
+              value={data.phone}
+              onChange={(e) => set('phone', e.target.value)}
+              placeholder="Ej. 3001234567"
+            />
+          </label>
+
+          <label>
+            Cambiar contraseña (opcional)
+            <input
+              type="password"
+              minLength={6}
+              value={data.password}
+              onChange={(e) => set('password', e.target.value)}
+              placeholder="Dejar en blanco para mantener la contraseña actual"
+            />
+            <small className="muted">Mínimo 6 caracteres si decides cambiarla.</small>
+          </label>
+
+          <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? 'Guardando cambios...' : 'Guardar información'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
 function GuestHome({ user, go }) {
@@ -573,10 +821,16 @@ function GuestHome({ user, go }) {
             Tu habitación, tus planes y tu ritmo. Desde aquí controlas todo lo que hace especial tu
             estadía en Sincelejo.
           </p>
-          <button className="primary" onClick={() => go('rooms')}>
-            <Search size={18} />
-            Explorar habitaciones
-          </button>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
+            <button className="primary" onClick={() => go('rooms')}>
+              <Search size={18} />
+              Explorar habitaciones
+            </button>
+            <button className="secondary" onClick={() => go('profile')}>
+              <User size={18} />
+              Mi perfil
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1234,10 +1488,13 @@ function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
                 <span>Sin servicios adicionales registrados</span>
               )}
             </div>
-            <p>
+            <p className="room-stay-dates">
               {fmtDate(dates.checkIn)} — {fmtDate(dates.checkOut)} · {detail.nights} noche(s)
             </p>
-            <p role="status" className={detail.available ? 'positive' : 'form-error'}>
+            <p
+              role="status"
+              className={`room-availability ${detail.available ? 'positive' : 'form-error'}`}
+            >
               {detail.available
                 ? 'Disponible para las fechas seleccionadas'
                 : 'No disponible para las fechas seleccionadas'}
@@ -1373,6 +1630,7 @@ function Reservations({ user, notify }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [editing, setEditing] = useState(null);
   const load = () =>
     api('/reservations/mine')
       .then(setItems)
@@ -1410,6 +1668,15 @@ function Reservations({ user, notify }) {
           <h3>Mis reservas</h3>
           <p className="muted">Consulta el estado y los detalles de tus estadías.</p>
         </div>
+        <button
+          className="secondary"
+          onClick={() => {
+            setError('');
+            load();
+          }}
+        >
+          Actualizar reservas
+        </button>
       </div>
       {error && (
         <p className="form-error" role="alert">
@@ -1432,9 +1699,11 @@ function Reservations({ user, notify }) {
               </p>
               {r.notes && <small>“{r.notes}”</small>}
               <p className="policy-note">{r.cancellationPolicy}</p>
+              <p className="policy-note">{r.modificationPolicy}</p>
+              {!r.modifiable && <small>{r.modificationReason}</small>}
               {r.status === 'CONFIRMED' && (
                 <small>
-                  Límite:{' '}
+                  Plazo de cancelación:{' '}
                   {new Date(r.cancellationDeadline).toLocaleString('es-CO', {
                     timeZone: 'America/Bogota',
                   })}{' '}
@@ -1445,11 +1714,22 @@ function Reservations({ user, notify }) {
             </div>
             <strong className="reservation-total">{money(r.total)}</strong>
             <span className={`status ${r.status.toLowerCase()}`}>{label[r.status]}</span>
-            {r.cancellable && (
-              <button className="ghost danger" disabled={busy !== null} onClick={() => cancel(r)}>
-                {busy === r.id ? 'Cancelando…' : 'Cancelar'}
-              </button>
-            )}
+            <div className="reservation-actions">
+              {r.modifiable && (
+                <button
+                  className="secondary"
+                  disabled={busy !== null}
+                  onClick={() => setEditing(r)}
+                >
+                  Modificar
+                </button>
+              )}
+              {r.cancellable && (
+                <button className="ghost danger" disabled={busy !== null} onClick={() => cancel(r)}>
+                  {busy === r.id ? 'Cancelando…' : 'Cancelar'}
+                </button>
+              )}
+            </div>
           </article>
         ))}
         {!items.length && (
@@ -1459,19 +1739,269 @@ function Reservations({ user, notify }) {
           </div>
         )}
       </div>
+      {editing && (
+        <ReservationChangeModal
+          reservation={editing}
+          onClose={() => {
+            setEditing(null);
+            load();
+          }}
+          onSaved={async () => {
+            setEditing(null);
+            notify('Reserva modificada. El importe y la disponibilidad fueron actualizados.');
+            await load();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function ReservationChangeModal({ reservation, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    roomId: reservation.roomId,
+    checkIn: reservation.checkIn,
+    checkOut: reservation.checkOut,
+    guests: reservation.guests,
+    notes: reservation.notes || '',
+    expectedVersion: reservation.version,
+  });
+  const [rooms, setRooms] = useState([]);
+  const [quote, setQuote] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  useEffect(() => {
+    let active = true;
+    api('/rooms/all')
+      .then((list) => {
+        if (active) setRooms(list);
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const change = (values) => {
+    setForm((current) => ({ ...current, ...values }));
+    setQuote(null);
+    setError('');
+  };
+  const review = async (event) => {
+    event.preventDefault();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      setQuote(
+        await api(`/reservations/${reservation.id}/quote`, {
+          method: 'POST',
+          body: JSON.stringify(form),
+        })
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    if (lock.current || !quote) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/reservations/${reservation.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...form, expectedTotal: quote.total }),
+      });
+      await onSaved();
+    } catch (err) {
+      setError(err.message);
+      setQuote(null);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  };
+  const selected = rooms.find((room) => room.id === Number(form.roomId));
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <form
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-title"
+        onSubmit={review}
+      >
+        <button
+          type="button"
+          className="modal-close"
+          aria-label="Cerrar modificación"
+          disabled={busy}
+          onClick={onClose}
+        >
+          <X />
+        </button>
+        <span className="eyebrow green">RESERVA #{reservation.id}</span>
+        <h2 id="change-title">Modificar reserva</h2>
+        <p className="policy-note">{reservation.modificationPolicy}</p>
+        <fieldset className="stay-fields" disabled={busy}>
+          <label>
+            Habitación
+            <select
+              autoFocus
+              value={form.roomId}
+              onChange={(event) => change({ roomId: Number(event.target.value) })}
+              required
+            >
+              {!rooms.length && (
+                <option value={reservation.roomId}>Habitación {reservation.roomNumber}</option>
+              )}
+              {rooms
+                .filter((room) => room.status === 'AVAILABLE' || room.id === reservation.roomId)
+                .map((room) => (
+                  <option key={room.id} value={room.id} disabled={room.status !== 'AVAILABLE'}>
+                    {room.number} · {room.type} · hasta {room.capacity} personas ·{' '}
+                    {money(room.price)}/noche
+                  </option>
+                ))}
+            </select>
+          </label>
+          <div className="form-grid">
+            <label>
+              Llegada
+              <input
+                type="date"
+                min={hotelDate(1)}
+                value={form.checkIn}
+                required
+                onChange={(event) => change({ checkIn: event.target.value })}
+              />
+            </label>
+            <label>
+              Salida
+              <input
+                type="date"
+                min={form.checkIn}
+                value={form.checkOut}
+                required
+                onChange={(event) => change({ checkOut: event.target.value })}
+              />
+            </label>
+            <label>
+              Huéspedes
+              <input
+                type="number"
+                min="1"
+                max={selected?.capacity}
+                value={form.guests}
+                required
+                onChange={(event) => change({ guests: Number(event.target.value) })}
+              />
+            </label>
+          </div>
+          <label>
+            Observaciones
+            <textarea
+              maxLength={255}
+              value={form.notes}
+              onChange={(event) => change({ notes: event.target.value })}
+            />
+          </label>
+        </fieldset>
+        {error && (
+          <div
+            className="form-error"
+            role="alert"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '12px 16px',
+              borderRadius: 'var(--r-md)',
+              background: '#fef2f2',
+              color: '#b91c1c',
+              border: '1px solid #fecaca',
+              margin: '8px 0 16px',
+              fontWeight: 500,
+            }}
+          >
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <span>{error}</span>
+          </div>
+        )}
+        {quote && (
+          <div className="price-summary reservation-change-summary" role="status">
+            <p>Total anterior: {money(quote.previousTotal)}</p>
+            <p>
+              Nuevo total por {quote.nights} noche(s): <strong>{money(quote.total)}</strong>
+            </p>
+            <p>
+              {quote.difference > 0
+                ? `Ingreso adicional: ${money(quote.difference)}`
+                : quote.difference < 0
+                  ? `Reembolso a registrar: ${money(-quote.difference)}`
+                  : 'Sin diferencia de importe.'}
+            </p>
+            <small>El ajuste se registra en el balance del hotel al confirmar.</small>
+          </div>
+        )}
+        {quote ? (
+          <button type="button" className="primary wide" disabled={busy} onClick={save}>
+            {busy ? 'Guardando…' : 'Confirmar cambios'}
+          </button>
+        ) : (
+          <button className="primary wide" disabled={busy || !rooms.length}>
+            {busy ? 'Revisando…' : 'Revisar cambios'}
+          </button>
+        )}
+      </form>
+    </div>
   );
 }
 
 function Requests({ user, notify }) {
   const [items, setItems] = useState([]);
+  const [stays, setStays] = useState([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const submission = useRef(null);
   const [form, setForm] = useState({
-    guestId: user.id,
-    roomNumber: '',
+    reservationId: '',
     category: 'Toallas y lencería',
     notes: '',
   });
-  const load = useCallback(() => api(`/requests?guestId=${user.id}`).then(setItems), [user.id]);
+  const load = useCallback(
+    () =>
+      Promise.all([api(`/requests?guestId=${user.id}`), api('/requests/eligible-reservations')])
+        .then(([list, eligible]) => {
+          setItems(list);
+          setStays(eligible);
+          setForm((current) => ({
+            ...current,
+            reservationId: eligible.some(
+              (stay) => String(stay.id) === String(current.reservationId)
+            )
+              ? current.reservationId
+              : String(eligible[0]?.id || ''),
+          }));
+        })
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false)),
+    [user.id]
+  );
   // Se envuelve en llaves a propósito: si el efecto devuelve la promesa de `load`,
   // React la toma como función de limpieza y falla al desmontar la vista.
   useEffect(() => {
@@ -1479,10 +2009,32 @@ function Requests({ user, notify }) {
   }, [load]);
   const submit = async (e) => {
     e.preventDefault();
-    await api('/requests', { method: 'POST', body: JSON.stringify(form) });
-    setForm({ ...form, notes: '' });
-    notify('Solicitud enviada al equipo');
-    load();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    const payload = {
+      ...form,
+      reservationId: Number(form.reservationId),
+      notes: form.notes.trim(),
+    };
+    const body = JSON.stringify(payload);
+    if (submission.current?.body !== body) submission.current = { body, key: crypto.randomUUID() };
+    try {
+      const saved = await api('/requests', {
+        method: 'POST',
+        body: JSON.stringify({ ...payload, clientRequestId: submission.current.key }),
+      });
+      submission.current = null;
+      setForm((current) => ({ ...current, notes: '' }));
+      notify(`Solicitud #${saved.id} enviada al equipo`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   };
 
   return (
@@ -1490,41 +2042,63 @@ function Requests({ user, notify }) {
       <form className="panel request-form" onSubmit={submit}>
         <span className="eyebrow green">ATENCIÓN A LA HABITACIÓN</span>
         <h3>¿En qué podemos ayudarte?</h3>
-        <label>
-          Habitación
-          <input
-            placeholder="Ej: 201"
-            value={form.roomNumber}
-            onChange={(e) => setForm({ ...form, roomNumber: e.target.value })}
-            required
-          />
-        </label>
-        <label>
-          Tipo de solicitud
-          <select
-            value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
-          >
-            <option>Toallas y lencería</option>
-            <option>Limpieza</option>
-            <option>Alimentos y bebidas</option>
-            <option>Mantenimiento</option>
-            <option>Otro</option>
-          </select>
-        </label>
-        <label>
-          Observaciones
-          <textarea
-            placeholder="Cuéntanos qué necesitas…"
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            required
-          />
-        </label>
-        <button className="primary wide">
-          <ConciergeBell size={17} />
-          Enviar solicitud
-        </button>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        {loading && <p role="status">Consultando tus estadías…</p>}
+        {!loading && !stays.length && (
+          <p role="status">
+            Podrás solicitar asistencia durante tu estadía. Si ya llegaste y no aparece tu
+            habitación, consulta a recepción.
+          </p>
+        )}
+        <fieldset className="stay-fields" disabled={busy || loading || !stays.length}>
+          <label>
+            Habitación
+            <select
+              value={form.reservationId}
+              onChange={(e) => setForm({ ...form, reservationId: e.target.value })}
+              required
+            >
+              {!stays.length && <option value="">Sin estadías vigentes</option>}
+              {stays.map((stay) => (
+                <option key={stay.id} value={stay.id}>
+                  {stay.roomNumber} · Reserva #{stay.id} · {fmtDate(stay.checkIn)} —{' '}
+                  {fmtDate(stay.checkOut)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Tipo de solicitud
+            <select
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+            >
+              <option>Toallas y lencería</option>
+              <option>Limpieza</option>
+              <option>Alimentos y bebidas</option>
+              <option>Mantenimiento</option>
+              <option>Otro</option>
+            </select>
+          </label>
+          <label>
+            Observaciones
+            <textarea
+              placeholder="Cuéntanos qué necesitas…"
+              value={form.notes}
+              maxLength={1200}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              required
+            />
+          </label>
+          <button className="primary wide" disabled={busy || !form.notes.trim()}>
+            <ConciergeBell size={17} />
+            {busy ? 'Enviando…' : 'Enviar solicitud'}
+          </button>
+        </fieldset>
       </form>
       <div>
         <div className="section-head">
@@ -1532,6 +2106,16 @@ function Requests({ user, notify }) {
             <h3>Solicitudes recientes</h3>
             <p className="muted">Sigue el progreso de tu atención.</p>
           </div>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => {
+              setError('');
+              load();
+            }}
+          >
+            Actualizar
+          </button>
         </div>
         <div className="list-stack compact">
           {items.map((i) => (
@@ -1634,9 +2218,64 @@ function Assistant() {
 }
 
 /* ============ EMPLEADO ============ */
-function Employee({ page, user, notify, onChange }) {
+function Employee({ page, user, notify, onChange, onUserUpdate }) {
   if (page === 'staff-requests') return <ServiceRequests notify={notify} onChange={onChange} />;
+  if (page === 'profile')
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <EmployeeTasks user={user} notify={notify} />;
+}
+
+function TaskNotifications({ items, loadError, onRead, goToTasks }) {
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const markRead = async (id) => {
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/tasks/notifications/${id}/read`, { method: 'PATCH' });
+      await onRead();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="section-head">
+        <div>
+          <h3>Avisos de tareas</h3>
+          <p className="muted">Nuevas asignaciones y cambios en tus tareas.</p>
+        </div>
+        <button className="ghost" onClick={goToTasks}>
+          Ir a mis tareas
+        </button>
+      </div>
+      {(loadError || error) && (
+        <p role="alert" className="form-error">
+          {loadError || error}
+        </p>
+      )}
+      <div className="list-stack" aria-live="polite">
+        {!items.length && !loadError && <p>No tienes avisos pendientes.</p>}
+        {items.map((item) => (
+          <article className="task-card" key={item.id}>
+            <p>{item.message}</p>
+            <p className="muted">
+              Tarea #{item.taskId} · {formatHotelDateTime(item.createdAt)}
+            </p>
+            <button className="ghost" disabled={busy} onClick={() => markRead(item.id)}>
+              Marcar como leído
+            </button>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function formatHotelDateTime(value) {
+  return new Date(value).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
 }
 
 function EmployeeTasks({ user, notify }) {
@@ -1821,19 +2460,37 @@ function TaskCompletion({ task, onComplete }) {
  */
 function ServiceRequests({ notify, onChange }) {
   const [items, setItems] = useState([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(null);
+  const lock = useRef(false);
   const load = () =>
-    api('/requests').then((list) =>
-      setItems([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)))
-    );
+    api('/requests')
+      .then((list) => {
+        setItems([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+        window.dispatchEvent(new Event('lindomar-requests-changed'));
+      })
+      .catch((err) => setError(err.message));
   useEffect(() => {
     load();
   }, []);
 
   const update = async (id, status) => {
-    await api(`/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-    notify(status === 'RESOLVED' ? 'Solicitud marcada como resuelta' : 'Solicitud en progreso');
-    load();
-    onChange?.();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(id);
+    setError('');
+    try {
+      await api(`/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+      notify(status === 'RESOLVED' ? 'Solicitud marcada como resuelta' : 'Solicitud en progreso');
+      await load();
+      onChange?.();
+    } catch (err) {
+      setError(err.message);
+      await load();
+    } finally {
+      lock.current = false;
+      setBusy(null);
+    }
   };
 
   const open = items.filter((i) => i.status !== 'RESOLVED');
@@ -1860,6 +2517,16 @@ function ServiceRequests({ notify, onChange }) {
           <h3>Solicitudes por atender</h3>
           <p className="muted">Peticiones enviadas por los huéspedes desde sus habitaciones.</p>
         </div>
+        <button
+          className="secondary"
+          disabled={busy !== null}
+          onClick={() => {
+            setError('');
+            load();
+          }}
+        >
+          Actualizar solicitudes
+        </button>
         {open.length > 0 && (
           <span className="notification-chip">
             <BellRing size={15} />
@@ -1867,6 +2534,11 @@ function ServiceRequests({ notify, onChange }) {
           </span>
         )}
       </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="list-stack">
         {open.map((i) => (
           <article className="request-row" key={i.id}>
@@ -1888,14 +2560,22 @@ function ServiceRequests({ notify, onChange }) {
             <div className="request-actions">
               <span className={`status ${i.status.toLowerCase()}`}>{label[i.status]}</span>
               {i.status === 'OPEN' && (
-                <button className="secondary" onClick={() => update(i.id, 'IN_PROGRESS')}>
-                  Atender
+                <button
+                  className="secondary"
+                  disabled={busy !== null}
+                  onClick={() => update(i.id, 'IN_PROGRESS')}
+                >
+                  {busy === i.id ? 'Guardando…' : 'Atender'}
                 </button>
               )}
               {i.status === 'IN_PROGRESS' && (
-                <button className="primary" onClick={() => update(i.id, 'RESOLVED')}>
+                <button
+                  className="primary"
+                  disabled={busy !== null}
+                  onClick={() => update(i.id, 'RESOLVED')}
+                >
                   <CheckCircle2 size={16} />
-                  Resolver
+                  {busy === i.id ? 'Guardando…' : 'Resolver'}
                 </button>
               )}
             </div>
@@ -1955,27 +2635,43 @@ function Metric({ icon: Icon, label: lab, value, help }) {
   );
 }
 
-function Admin({ page, user, notify, onChange }) {
+function Admin({ page, user, notify, onChange, onUserUpdate }) {
   if (page === 'admin-home') return <AdminHome notify={notify} />;
   if (page === 'admin-rooms') return <AdminRooms notify={notify} />;
   if (page === 'admin-reservations') return <AdminReservations notify={notify} />;
   if (page === 'admin-requests') return <ServiceRequests notify={notify} onChange={onChange} />;
   if (page === 'admin-users') return <AdminUsers currentUser={user} notify={notify} />;
   if (page === 'admin-tasks') return <AdminTasks notify={notify} />;
+  if (page === 'finance') return <Finance notify={notify} />;
+  if (page === 'profile')
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <Finance notify={notify} />;
 }
 
 function AdminHome({ notify }) {
   const [d, setD] = useState(null);
   const [reminders, setReminders] = useState([]);
-  const load = () => {
-    api('/dashboard').then(setD);
-    api('/reminders').then(setReminders);
-  };
+  const [loadError, setLoadError] = useState('');
+  const load = () =>
+    Promise.all([api('/dashboard'), api('/reminders')])
+      .then(([dashboard, scheduled]) => {
+        setD(dashboard);
+        setReminders(scheduled);
+        setLoadError('');
+      })
+      .catch((error) => setLoadError(error.message));
   useEffect(() => {
     load();
   }, []);
-  if (!d) return <div className="loader">Cargando indicadores…</div>;
+  const { pay, payingId, paymentError } = useReminderPayment(notify, load);
+  if (!d)
+    return loadError ? (
+      <p className="form-error" role="alert">
+        {loadError}
+      </p>
+    ) : (
+      <div className="loader">Cargando indicadores…</div>
+    );
 
   const occupancy = Number.isFinite(d.occupancyRate) ? d.occupancyRate : 0;
   const roomBreakdown = [
@@ -1986,12 +2682,6 @@ function AdminHome({ notify }) {
     ['out-of-service', 'fuera de servicio', d.outOfService],
   ];
   const pending = reminders.filter((r) => r.status === 'PENDING');
-
-  const pay = async (r) => {
-    await api(`/reminders/${r.id}/pay`, { method: 'POST' });
-    notify('Gasto registrado y descontado del balance');
-    load();
-  };
 
   return (
     <>
@@ -2067,8 +2757,53 @@ function AdminHome({ notify }) {
           </span>
           <div>
             <small>ESTIMACIÓN DE PERSONAL</small>
-            <h3>{d.suggestedCleaners} persona(s) de aseo</h3>
-            <p>Calculado según la ocupación y las reservas activas.</p>
+            <h3>
+              {d.suggestedCleaners}{' '}
+              {d.suggestedCleaners === 1 ? 'persona de aseo' : 'personas de aseo'}
+            </h3>
+            <p>
+              {(() => {
+                let text = d.cleaningRationale || '';
+                text = text.replace(/\s*\(ratio:[^)]*\)/gi, '');
+                text = text.replace(/Para una ocupación del/gi, 'Con el hotel al');
+                text = text.replace(/Para una ocupación/gi, 'Con el hotel al');
+                text = text.replace(
+                  /con 0 salida\(s\) de habitación,?/gi,
+                  'y sin salidas de habitaciones hoy,'
+                );
+                text = text.replace(
+                  /con 0 salidas de habitación,?/gi,
+                  'y sin salidas de habitaciones hoy,'
+                );
+                text = text.replace(
+                  /con 1 salida\(s\) de habitación,?/gi,
+                  'y 1 habitación por entregar hoy,'
+                );
+                text = text.replace(
+                  /con (\d+) salida\(s\) de habitación,?/gi,
+                  'y $1 habitaciones por entregar hoy,'
+                );
+                text = text.replace(/al del/gi, 'al');
+                text = text.replace(/1 persona\(s\) de aseo/gi, '1 persona de aseo');
+                text = text.replace(/(\d+) persona\(s\) de aseo/gi, '$1 personas de aseo');
+                text = text.replace(
+                  /se recomiendan 1 persona de aseo/gi,
+                  'se sugiere programar 1 persona de aseo'
+                );
+                text = text.replace(
+                  /se recomiendan (\d+) personas de aseo/gi,
+                  'se sugiere programar $1 personas de aseo'
+                );
+                text = text.replace(/se recomiendan/gi, 'se sugiere programar');
+                if (!text.trim() || text.includes('ratio')) {
+                  const cleaners = d.suggestedCleaners || 1;
+                  const cText =
+                    cleaners === 1 ? '1 persona de aseo' : `${cleaners} personas de aseo`;
+                  text = `Con el hotel al ${d.occupancyRate || 0}% de ocupación y sin salidas hoy, se sugiere programar ${cText} para atender la limpieza.`;
+                }
+                return text.trim();
+              })()}
+            </p>
           </div>
         </div>
       </div>
@@ -2085,6 +2820,16 @@ function AdminHome({ notify }) {
           </span>
         )}
       </div>
+      {loadError && (
+        <p className="form-error" role="alert">
+          {loadError}
+        </p>
+      )}
+      {paymentError && (
+        <p className="form-error" role="alert">
+          {paymentError}
+        </p>
+      )}
       <div className="reminder-list">
         {pending.map((r) => {
           const days = daysUntil(r.dueDate);
@@ -2103,8 +2848,8 @@ function AdminHome({ notify }) {
                       : `en ${days} día(s)`}
                 </small>
               </div>
-              <button className="secondary" onClick={() => pay(r)}>
-                Registrar gasto
+              <button className="secondary" disabled={payingId !== null} onClick={() => pay(r)}>
+                {payingId === r.id ? 'Registrando…' : 'Registrar gasto'}
               </button>
             </div>
           );
@@ -2139,7 +2884,9 @@ function AdminRooms({ notify }) {
   const [creating, setCreating] = useState(false);
   const [statusError, setStatusError] = useState('');
   const [updating, setUpdating] = useState(null);
-  const load = () => api('/rooms/all').then((data) => setRooms(normalizeRoomsList(data)));
+  const [page, setPage] = useState(1);
+  const pageSize = 6;
+  const load = () => api('/rooms/all').then(setRooms);
   useEffect(() => {
     load();
   }, []);
@@ -2185,6 +2932,11 @@ function AdminRooms({ notify }) {
     }
   };
 
+  const totalPages = Math.max(1, Math.ceil(rooms.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedRooms = rooms.slice(startIndex, startIndex + pageSize);
+
   return (
     <>
       <div className="section-head">
@@ -2216,7 +2968,7 @@ function AdminRooms({ notify }) {
             </tr>
           </thead>
           <tbody>
-            {rooms.map((r) => (
+            {paginatedRooms.map((r) => (
               <tr key={r.id}>
                 <td>
                   <strong>{r.number}</strong>
@@ -2269,6 +3021,35 @@ function AdminRooms({ notify }) {
             ))}
           </tbody>
         </table>
+        {rooms.length > 0 && (
+          <div className="table-pagination">
+            <span>
+              Mostrando {startIndex + 1}–{Math.min(startIndex + pageSize, rooms.length)} de{' '}
+              {rooms.length} habitaciones
+            </span>
+            <div className="pagination-controls">
+              <button
+                type="button"
+                className="secondary"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {(editing || creating) && (
@@ -2422,7 +3203,15 @@ function AdminReservations({ notify }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [modifying, setModifying] = useState(null);
+  const [allRooms, setAllRooms] = useState([]);
   const [filters, setFilters] = useState({ query: '', status: 'ALL', from: '', to: '' });
+
+  useEffect(() => {
+    api('/rooms/all')
+      .then(setAllRooms)
+      .catch(() => {});
+  }, []);
   const load = () =>
     api('/reservations')
       .then(setItems)
@@ -2458,6 +3247,22 @@ function AdminReservations({ notify }) {
       setBusy(null);
     }
   };
+  const saveModification = async (formData) => {
+    await api(`/reservations/${formData.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        roomId: formData.roomId,
+        checkIn: formData.checkIn,
+        checkOut: formData.checkOut,
+        guests: formData.guests,
+        notes: formData.notes,
+      }),
+    });
+    notify(`Reserva #${formData.id} modificada con éxito`);
+    setModifying(null);
+    await load();
+  };
+
   const filtered = useMemo(
     () =>
       items.filter((r) => {
@@ -2467,7 +3272,9 @@ function AdminReservations({ notify }) {
           r.guestName.toLowerCase().includes(query) ||
           r.roomNumber.toLowerCase().includes(query) ||
           String(r.id).includes(query);
-        const matchesStatus = filters.status === 'ALL' || r.status === filters.status;
+        const matchesStatus =
+          filters.status === 'ALL' ||
+          (filters.status === 'CANCELLABLE' ? r.cancellable : r.status === filters.status);
         const matchesFrom = !filters.from || r.checkIn >= filters.from;
         const matchesTo = !filters.to || r.checkOut <= filters.to;
         return matchesQuery && matchesStatus && matchesFrom && matchesTo;
@@ -2504,6 +3311,7 @@ function AdminReservations({ notify }) {
             onChange={(e) => setFilters({ ...filters, status: e.target.value })}
           >
             <option value="ALL">Todos</option>
+            <option value="CANCELLABLE">Se pueden cancelar</option>
             <option value="CONFIRMED">Confirmada</option>
             <option value="CHECKED_IN">Alojado</option>
             <option value="COMPLETED">Finalizada</option>
@@ -2527,7 +3335,7 @@ function AdminReservations({ notify }) {
           />
         </label>
         <button
-          className="ghost"
+          className="secondary"
           onClick={() => setFilters({ query: '', status: 'ALL', from: '', to: '' })}
         >
           Limpiar
@@ -2546,6 +3354,7 @@ function AdminReservations({ notify }) {
               <th>Fechas</th>
               <th>Total</th>
               <th>Estado</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -2573,10 +3382,35 @@ function AdminReservations({ notify }) {
                     <option value={r.status}>{label[r.status]}</option>
                     {r.status === 'CONFIRMED' && <option value="CHECKED_IN">Alojado</option>}
                     {r.status === 'CHECKED_IN' && <option value="COMPLETED">Finalizada</option>}
-                    {r.cancellable && <option value="CANCELLED">Cancelada</option>}
                   </select>
+                  {r.cancellable && (
+                    <button
+                      className="ghost danger"
+                      disabled={busy !== null}
+                      onClick={() => update(r, 'CANCELLED')}
+                    >
+                      Cancelar reserva
+                    </button>
+                  )}
+                  {r.cancelledAt && (
+                    <small>
+                      {formatHotelDateTime(r.cancelledAt)} · {label[r.cancelledByRole]}
+                    </small>
+                  )}
                   {!r.cancellable && r.status === 'CONFIRMED' && (
                     <small>{r.cancellationReason}</small>
+                  )}
+                </td>
+                <td>
+                  {!['CANCELLED', 'COMPLETED'].includes(r.status) && (
+                    <button
+                      className="icon-button"
+                      title="Modificar reserva"
+                      disabled={busy !== null}
+                      onClick={() => setModifying({ ...r })}
+                    >
+                      <Settings2 />
+                    </button>
                   )}
                 </td>
               </tr>
@@ -2590,7 +3424,185 @@ function AdminReservations({ notify }) {
           </div>
         )}
       </div>
+
+      {modifying && (
+        <AdminModifyReservationModal
+          reservation={modifying}
+          rooms={allRooms}
+          onClose={() => setModifying(null)}
+          onSave={saveModification}
+          notify={notify}
+        />
+      )}
     </>
+  );
+}
+
+function AdminModifyReservationModal({ reservation, rooms, onClose, onSave, notify }) {
+  const formRef = useRef(null);
+  const [data, setData] = useState({
+    id: reservation.id,
+    roomId: reservation.roomId,
+    checkIn: reservation.checkIn,
+    checkOut: reservation.checkOut,
+    guests: reservation.guests || 1,
+    notes: reservation.notes || '',
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const selectedRoom = rooms.find((rm) => rm.id === Number(data.roomId));
+
+  const nights = useMemo(() => {
+    if (!data.checkIn || !data.checkOut) return 0;
+    const inDate = new Date(data.checkIn);
+    const outDate = new Date(data.checkOut);
+    const diff = Math.round((outDate - inDate) / (1000 * 60 * 60 * 24));
+    return diff > 0 ? diff : 0;
+  }, [data.checkIn, data.checkOut]);
+
+  const estimatedTotal = (selectedRoom?.price || 0) * nights;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await onSave(data);
+    } catch (err) {
+      setError(err.message);
+      if (notify) {
+        notify(`Atención: ${err.message}`);
+      }
+      if (formRef.current) {
+        formRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const renderAlert = () =>
+    error ? (
+      <div
+        className="form-error"
+        role="alert"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '12px 14px',
+          borderRadius: 'var(--r-md)',
+          background: '#fef2f2',
+          color: '#b91c1c',
+          border: '1px solid #fecaca',
+          margin: '10px 0',
+          fontWeight: 500,
+        }}
+      >
+        <AlertCircle size={18} style={{ flexShrink: 0 }} />
+        <span>{error}</span>
+      </div>
+    ) : null;
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form ref={formRef} className="modal" onSubmit={handleSubmit}>
+        <div className="modal-header">
+          <h3>Modificar reserva #{String(reservation.id).padStart(4, '0')}</h3>
+          <button type="button" className="icon-button" onClick={onClose}>
+            <X />
+          </button>
+        </div>
+        {renderAlert()}
+        <label>
+          Huésped
+          <input value={reservation.guestName} disabled style={{ opacity: 0.8 }} />
+        </label>
+        <label>
+          Habitación asignada
+          <select
+            value={data.roomId}
+            onChange={(e) => setData({ ...data, roomId: Number(e.target.value) })}
+          >
+            {rooms.map((rm) => (
+              <option key={rm.id} value={rm.id}>
+                Habitación {rm.number} · {rm.type} ({rm.capacity} personas) — {money(rm.price)}
+                /noche
+              </option>
+            ))}
+          </select>
+        </label>
+        <div
+          className="field-group"
+          style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}
+        >
+          <label>
+            Llegada (Check-in)
+            <input
+              type="date"
+              required
+              value={data.checkIn}
+              onChange={(e) => setData({ ...data, checkIn: e.target.value })}
+            />
+          </label>
+          <label>
+            Salida (Check-out)
+            <input
+              type="date"
+              required
+              value={data.checkOut}
+              onChange={(e) => setData({ ...data, checkOut: e.target.value })}
+            />
+          </label>
+        </div>
+        <label>
+          Huéspedes
+          <input
+            type="number"
+            min={1}
+            max={selectedRoom?.capacity || 4}
+            required
+            value={data.guests}
+            onChange={(e) => setData({ ...data, guests: Number(e.target.value) })}
+          />
+          <small className="muted">
+            Máximo {selectedRoom?.capacity || 4} personas para esta habitación.
+          </small>
+        </label>
+        <label>
+          Observaciones / Notas
+          <textarea
+            value={data.notes}
+            maxLength={255}
+            rows={2}
+            onChange={(e) => setData({ ...data, notes: e.target.value })}
+            placeholder="Peticiones especiales o notas operativas"
+          />
+        </label>
+        <div
+          style={{
+            background: 'var(--bg-sunken)',
+            padding: '12px',
+            borderRadius: 'var(--r-md)',
+            fontSize: '13px',
+          }}
+        >
+          <span>
+            Total recalculado: <strong>{money(estimatedTotal)}</strong> ({nights} noches)
+          </span>
+        </div>
+        {renderAlert()}
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Guardando...' : 'Confirmar cambios'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -2599,14 +3611,24 @@ function AdminUsers({ currentUser, notify }) {
   const [roles, setRoles] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
-  useEffect(() => {
+  const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 8;
+
+  const load = () => {
     Promise.all([api('/users'), api('/roles')])
       .then(([list, permissions]) => {
         setUsers(list);
         setRoles(permissions);
       })
       .catch((err) => setError(err.message));
+  };
+
+  useEffect(() => {
+    load();
   }, []);
+
   const changeRole = async (user, role) => {
     if (
       !confirm(
@@ -2629,12 +3651,53 @@ function AdminUsers({ currentUser, notify }) {
       setBusy(null);
     }
   };
+
+  const saveUser = async (data) => {
+    const updated = await api(`/users/${data.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: data.name, phone: data.phone, role: data.role }),
+    });
+    setUsers((list) => list.map((u) => (u.id === updated.id ? updated : u)));
+    setEditing(null);
+    notify(`Usuario ${updated.name} actualizado`);
+  };
+
+  const createUser = async (data) => {
+    const created = await api('/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    setUsers((list) => [created, ...list]);
+    setCreating(false);
+    notify(`Usuario ${created.name} creado con éxito`);
+  };
+
+  const removeUser = async (u) => {
+    if (!confirm(`¿Eliminar la cuenta de ${u.name}? Esta acción no se puede deshacer.`)) return;
+    setBusy(u.id);
+    setError('');
+    try {
+      await api(`/users/${u.id}`, { method: 'DELETE' });
+      setUsers((list) => list.filter((item) => item.id !== u.id));
+      notify(`Usuario ${u.name} eliminado`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedUsers = users.slice(startIndex, startIndex + pageSize);
+
   return (
     <>
       <div className="section-head">
         <div>
-          <h3>Equipo y usuarios</h3>
-          <p className="muted">Cuentas registradas y su rol en el sistema.</p>
+          <h3>Perfiles del sistema</h3>
+          <p className="muted">Permisos y capacidades asociadas a cada rol operativo.</p>
         </div>
       </div>
       {error && (
@@ -2644,8 +3707,14 @@ function AdminUsers({ currentUser, notify }) {
       )}
       <div className="permission-grid">
         {Object.entries(roles).map(([role, permissions]) => (
-          <section className="panel" key={role}>
-            <h3>{label[role]}</h3>
+          <section className={`panel permission-card role-${role.toLowerCase()}`} key={role}>
+            <header>
+              <span aria-hidden="true">{label[role]?.charAt(0)}</span>
+              <div>
+                <small>PERFIL DEL SISTEMA</small>
+                <h3>{label[role]}</h3>
+              </div>
+            </header>
             <ul>
               {permissions.map((p) => (
                 <li key={p}>{p}</li>
@@ -2654,34 +3723,247 @@ function AdminUsers({ currentUser, notify }) {
           </section>
         ))}
       </div>
-      <div className="user-grid">
-        {users.map((u) => (
-          <article key={u.id}>
-            <div className="avatar large">{initials(u.name)}</div>
-            <div>
-              <h3>{u.name}</h3>
-              <p>{u.email}</p>
-              <small>{u.phone}</small>
-            </div>
-            <label>
-              Rol de {u.name}
-              <select
-                value={u.role}
-                disabled={busy !== null || u.id === currentUser.id}
-                onChange={(e) => changeRole(u, e.target.value)}
-              >
-                {['GUEST', 'EMPLOYEE', 'ADMIN'].map((role) => (
-                  <option key={role} value={role}>
-                    {label[role]}
-                  </option>
-                ))}
-              </select>
-              {u.id === currentUser.id && <small>Otro administrador debe cambiar tu rol.</small>}
-            </label>
-          </article>
-        ))}
+
+      <div className="section-head" style={{ marginTop: '32px' }}>
+        <div>
+          <h3>Usuarios registrados</h3>
+          <p className="muted">Cuentas con acceso a la plataforma y asignación de roles.</p>
+        </div>
+        <button className="primary" onClick={() => setCreating(true)}>
+          <Plus size={17} />
+          Nuevo usuario
+        </button>
       </div>
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Contacto</th>
+              <th>Rol asignado</th>
+              <th>Cambio rápido</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginatedUsers.map((u) => {
+              const isCurrent = u.id === currentUser.id;
+              return (
+                <tr key={u.id}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div className="avatar">{initials(u.name)}</div>
+                      <div>
+                        <strong>{u.name}</strong>
+                        <small>{u.email}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span>{u.phone || 'No registrado'}</span>
+                  </td>
+                  <td>
+                    <span className={`role-badge ${u.role?.toLowerCase()}`}>
+                      {label[u.role] || u.role}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <select
+                        aria-label={`Rol de ${u.name}`}
+                        value={u.role}
+                        disabled={busy !== null || isCurrent}
+                        onChange={(e) => changeRole(u, e.target.value)}
+                        style={{ minWidth: '150px' }}
+                      >
+                        {['GUEST', 'EMPLOYEE', 'ADMIN'].map((role) => (
+                          <option key={role} value={role}>
+                            {label[role]}
+                          </option>
+                        ))}
+                      </select>
+                      {isCurrent && (
+                        <small style={{ color: 'var(--muted)', fontSize: '11px' }}>
+                          Tu cuenta activa (no modificable)
+                        </small>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="request-actions">
+                      <button
+                        className="icon-button"
+                        title="Editar usuario"
+                        onClick={() => setEditing({ ...u })}
+                      >
+                        <Settings2 />
+                      </button>
+                      <button
+                        className="icon-button danger"
+                        title="Eliminar usuario"
+                        disabled={isCurrent || busy !== null}
+                        onClick={() => removeUser(u)}
+                      >
+                        <Trash2 />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {users.length > 0 && (
+          <div className="table-pagination">
+            <span>
+              Mostrando {startIndex + 1}–{Math.min(startIndex + pageSize, users.length)} de{' '}
+              {users.length} usuarios
+            </span>
+            <div className="pagination-controls">
+              <button
+                type="button"
+                className="secondary"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {(editing || creating) && (
+        <UserModal
+          user={editing || { name: '', email: '', phone: '', role: 'EMPLOYEE', password: '' }}
+          isNew={creating}
+          currentUser={currentUser}
+          onClose={() => {
+            setEditing(null);
+            setCreating(false);
+          }}
+          onSave={creating ? createUser : saveUser}
+        />
+      )}
     </>
+  );
+}
+
+function UserModal({ user, isNew, onClose, onSave, currentUser }) {
+  const [data, setData] = useState(user);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setData((d) => ({ ...d, [k]: v }));
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form
+        className="modal"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError('');
+          setBusy(true);
+          try {
+            await onSave(data);
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="modal-header">
+          <h3>{isNew ? 'Registrar nuevo usuario' : `Editar usuario: ${user.name}`}</h3>
+          <button type="button" className="icon-button" onClick={onClose}>
+            <X />
+          </button>
+        </div>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <label>
+          Nombre completo
+          <input
+            required
+            minLength={2}
+            value={data.name || ''}
+            onChange={(e) => set('name', e.target.value)}
+            placeholder="Ej. Carmen Restrepo"
+          />
+        </label>
+        <label>
+          Correo electrónico
+          <input
+            type="email"
+            required
+            disabled={!isNew}
+            value={data.email || ''}
+            onChange={(e) => set('email', e.target.value)}
+            placeholder="usuario@lindomar.co"
+          />
+          {!isNew && <small>El correo no se puede modificar.</small>}
+        </label>
+        <label>
+          Teléfono
+          <input
+            type="tel"
+            value={data.phone || ''}
+            onChange={(e) => set('phone', e.target.value)}
+            placeholder="3001234567"
+          />
+        </label>
+        <label>
+          Rol en la plataforma
+          <select
+            value={data.role || 'EMPLOYEE'}
+            disabled={!isNew && user?.id === currentUser?.id}
+            onChange={(e) => set('role', e.target.value)}
+          >
+            <option value="GUEST">Huésped</option>
+            <option value="EMPLOYEE">Empleado</option>
+            <option value="ADMIN">Administrador</option>
+          </select>
+          {!isNew && user?.id === currentUser?.id && (
+            <small>No puedes cambiar tu propio rol desde aquí.</small>
+          )}
+        </label>
+        {isNew && (
+          <label>
+            Contraseña inicial
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={data.password || ''}
+              onChange={(e) => set('password', e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+            />
+          </label>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Guardando...' : isNew ? 'Crear usuario' : 'Guardar cambios'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -2803,14 +4085,16 @@ function AdminTasks({ notify }) {
             <div>
               <small>Responsable</small>
               <strong>{name(t.employeeId)}</strong>
-              {!t.employeeId && (
+              {t.status !== 'DONE' && (
                 <select
                   aria-label={`Asignar tarea ${t.title}`}
-                  value=""
+                  value={t.employeeId ?? ''}
                   disabled={!employees.length}
                   onChange={(e) => assign(t, e.target.value)}
                 >
-                  <option value="">Asignar responsable</option>
+                  <option value="" disabled>
+                    Asignar responsable
+                  </option>
                   {employees.map((e) => (
                     <option key={e.id} value={e.id}>
                       {e.name}
@@ -2965,6 +4249,9 @@ function Finance({ notify }) {
   const [reminders, setReminders] = useState([]);
   const [show, setShow] = useState(false);
   const [showReminder, setShowReminder] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const saveLock = useRef(false);
   const [form, setForm] = useState({ type: 'INCOME', concept: '', amount: '', date: today() });
   const [reminderForm, setReminderForm] = useState({
     concept: '',
@@ -2973,42 +4260,75 @@ function Finance({ notify }) {
     dueDate: future(7),
   });
 
-  const load = () => {
-    api('/finance').then(setEntries);
-    api('/reminders').then(setReminders);
-  };
+  const load = () =>
+    Promise.all([api('/finance'), api('/reminders')])
+      .then(([movements, scheduled]) => {
+        setEntries(movements);
+        setReminders(scheduled);
+      })
+      .catch((err) => setError(err.message));
   useEffect(() => {
     load();
   }, []);
 
   const create = async (e) => {
     e.preventDefault();
-    await api('/finance', {
-      method: 'POST',
-      body: JSON.stringify({ ...form, amount: Number(form.amount) }),
-    });
-    setShow(false);
-    notify('Movimiento financiero registrado');
-    load();
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await api('/finance', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...form,
+          concept: form.concept.trim(),
+          amount: Number(form.amount),
+        }),
+      });
+      setShow(false);
+      setForm({ type: 'INCOME', concept: '', amount: '', date: today() });
+      notify('Movimiento financiero registrado');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
   };
   const createReminder = async (e) => {
     e.preventDefault();
-    await api('/reminders', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...reminderForm,
-        estimatedAmount: Number(reminderForm.estimatedAmount),
-      }),
-    });
-    setShowReminder(false);
-    notify('Recordatorio programado');
-    load();
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await api('/reminders', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...reminderForm,
+          concept: reminderForm.concept.trim(),
+          estimatedAmount: Number(reminderForm.estimatedAmount),
+        }),
+      });
+      setShowReminder(false);
+      setReminderForm({
+        concept: '',
+        category: 'Insumos',
+        estimatedAmount: '',
+        dueDate: future(7),
+      });
+      notify('Recordatorio programado');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
   };
-  const pay = async (r) => {
-    await api(`/reminders/${r.id}/pay`, { method: 'POST' });
-    notify('Gasto registrado y descontado del balance');
-    load();
-  };
+  const { pay, payingId, paymentError } = useReminderPayment(notify, load);
 
   const income = entries
     .filter((e) => e.type === 'INCOME')
@@ -3025,11 +4345,22 @@ function Finance({ notify }) {
           <h3>Control financiero</h3>
           <p className="muted">Ingresos, gastos y balance del hotel.</p>
         </div>
-        <button className="primary" onClick={() => setShow(true)}>
+        <button
+          className="primary"
+          onClick={() => {
+            setError('');
+            setShow(true);
+          }}
+        >
           <Plus size={17} />
           Nuevo movimiento
         </button>
       </div>
+      {error && !show && !showReminder && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="metric-grid three">
         <Metric
           icon={TrendingUp}
@@ -3056,11 +4387,22 @@ function Finance({ notify }) {
           <h3>Gastos programados</h3>
           <p className="muted">Recordatorios de pagos y compras necesarias.</p>
         </div>
-        <button className="secondary" onClick={() => setShowReminder(true)}>
+        <button
+          className="secondary"
+          onClick={() => {
+            setError('');
+            setShowReminder(true);
+          }}
+        >
           <Plus size={17} />
           Programar gasto
         </button>
       </div>
+      {paymentError && (
+        <p className="form-error" role="alert">
+          {paymentError}
+        </p>
+      )}
       <div className="reminder-list">
         {pending.map((r) => {
           const days = daysUntil(r.dueDate);
@@ -3073,8 +4415,8 @@ function Finance({ notify }) {
                   {r.category} · {money(r.estimatedAmount)} · vence {fmtDate(r.dueDate)}
                 </small>
               </div>
-              <button className="secondary" onClick={() => pay(r)}>
-                Registrar gasto
+              <button className="secondary" disabled={payingId !== null} onClick={() => pay(r)}>
+                {payingId === r.id ? 'Registrando…' : 'Registrar gasto'}
               </button>
             </div>
           );
@@ -3134,6 +4476,11 @@ function Finance({ notify }) {
             </button>
             <span className="eyebrow green">MOVIMIENTO</span>
             <h2>Registrar movimiento</h2>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
             <label>
               Tipo
               <select
@@ -3148,6 +4495,8 @@ function Finance({ notify }) {
               Concepto
               <input
                 value={form.concept}
+                maxLength={255}
+                pattern=".*\S.*"
                 onChange={(e) => setForm({ ...form, concept: e.target.value })}
                 required
               />
@@ -3157,7 +4506,9 @@ function Finance({ notify }) {
                 Valor
                 <input
                   type="number"
-                  min="1"
+                  min="0.01"
+                  max="999999999999.99"
+                  step="0.01"
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: e.target.value })}
                   required
@@ -3167,12 +4518,15 @@ function Finance({ notify }) {
                 Fecha
                 <input
                   type="date"
+                  max={today()}
                   value={form.date}
                   onChange={(e) => setForm({ ...form, date: e.target.value })}
                 />
               </label>
             </div>
-            <button className="primary wide">Guardar movimiento</button>
+            <button className="primary wide" disabled={saving}>
+              {saving ? 'Guardando…' : 'Guardar movimiento'}
+            </button>
           </form>
         </div>
       )}
@@ -3188,11 +4542,18 @@ function Finance({ notify }) {
             </button>
             <span className="eyebrow green">RECORDATORIO</span>
             <h2>Programar gasto</h2>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
             <p className="muted">El sistema te avisará cuando la fecha se acerque.</p>
             <label>
               Concepto
               <input
                 value={reminderForm.concept}
+                maxLength={255}
+                pattern=".*\S.*"
                 onChange={(e) => setReminderForm({ ...reminderForm, concept: e.target.value })}
                 placeholder="Ej: Pago factura de agua"
                 required
@@ -3216,7 +4577,9 @@ function Finance({ notify }) {
                 Valor estimado
                 <input
                   type="number"
-                  min="1"
+                  min="0.01"
+                  max="999999999999.99"
+                  step="0.01"
                   value={reminderForm.estimatedAmount}
                   onChange={(e) =>
                     setReminderForm({ ...reminderForm, estimatedAmount: e.target.value })
@@ -3230,11 +4593,14 @@ function Finance({ notify }) {
                   type="date"
                   min={today()}
                   value={reminderForm.dueDate}
+                  required
                   onChange={(e) => setReminderForm({ ...reminderForm, dueDate: e.target.value })}
                 />
               </label>
             </div>
-            <button className="primary wide">Programar recordatorio</button>
+            <button className="primary wide" disabled={saving}>
+              {saving ? 'Guardando…' : 'Programar recordatorio'}
+            </button>
           </form>
         </div>
       )}
@@ -3344,6 +4710,7 @@ function App() {
             onLogout={logout}
             theme={theme}
             toggleTheme={toggleTheme}
+            onUserUpdate={(updated) => setUser((prev) => ({ ...prev, ...updated }))}
           />
         ) : (
           <p role="alert">

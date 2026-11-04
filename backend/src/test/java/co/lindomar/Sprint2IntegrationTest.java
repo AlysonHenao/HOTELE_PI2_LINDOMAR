@@ -303,7 +303,9 @@ class Sprint2IntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"CANCELLED\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("CANCELLED"));
+        .andExpect(jsonPath("$.status").value("CANCELLED"))
+        .andExpect(jsonPath("$.cancelledAt").exists())
+        .andExpect(jsonPath("$.cancelledByRole").value("ADMIN"));
     assertThat(refunds(r.getId())).isEqualTo(1);
     mvc.perform(
             put("/api/reservations/{id}", r.getId())
@@ -626,17 +628,17 @@ class Sprint2IntegrationTest {
                   .contentType(MediaType.APPLICATION_JSON)
                   .content(
                       json.writeValueAsString(
-                          Map.of(
-                              "employeeId",
-                              id,
-                              "title",
-                              "Prueba",
-                              "description",
-                              "Prueba de permisos",
-                              "dueDate",
-                              LocalDate.now().plusDays(1).toString(),
-                              "priority",
-                              "Alta"))))
+                          Map.ofEntries(
+                              Map.entry("type", "EXPENSE"),
+                              Map.entry("concept", "Prueba de permisos"),
+                              Map.entry("category", "Servicios"),
+                              Map.entry("amount", 100),
+                              Map.entry("estimatedAmount", 100),
+                              Map.entry("employeeId", id),
+                              Map.entry("title", "Prueba"),
+                              Map.entry("description", "Prueba de permisos"),
+                              Map.entry("dueDate", LocalDate.now().plusDays(1).toString()),
+                              Map.entry("priority", "Alta")))))
           .andExpect(status().isForbidden());
   }
 

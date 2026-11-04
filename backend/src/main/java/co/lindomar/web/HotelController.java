@@ -15,12 +15,14 @@ import co.lindomar.domain.Domain.ServiceRequest;
 import co.lindomar.domain.Domain.StaffTask;
 import co.lindomar.domain.Domain.TaskStatus;
 import co.lindomar.domain.Domain.UserAccount;
+import co.lindomar.domain.TaskNotification;
 import co.lindomar.repository.AuthSessionRepository;
 import co.lindomar.repository.FinanceRepository;
 import co.lindomar.repository.ReminderRepository;
 import co.lindomar.repository.RequestRepository;
 import co.lindomar.repository.ReservationRepository;
 import co.lindomar.repository.RoomRepository;
+import co.lindomar.repository.TaskNotificationRepository;
 import co.lindomar.repository.TaskRepository;
 import co.lindomar.repository.UserRepository;
 import co.lindomar.service.CancellationPolicy;
@@ -47,6 +49,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -80,6 +83,7 @@ public class HotelController {
   private final ReservationRepository reservations;
   private final RequestRepository requests;
   private final TaskRepository tasks;
+  private final TaskNotificationRepository taskNotifications;
   private final FinanceRepository finance;
   private final ReminderRepository reminders;
   private final AuthSessionRepository sessions;
@@ -95,6 +99,7 @@ public class HotelController {
       ReservationRepository rs,
       RequestRepository rq,
       TaskRepository t,
+      TaskNotificationRepository taskNotifications,
       FinanceRepository f,
       ReminderRepository rm,
       AuthSessionRepository s,
@@ -106,6 +111,7 @@ public class HotelController {
     reservations = rs;
     requests = rq;
     tasks = t;
+    this.taskNotifications = taskNotifications;
     finance = f;
     reminders = rm;
     sessions = s;
@@ -166,7 +172,23 @@ public class HotelController {
       boolean cancellable,
       String cancellationReason,
       OffsetDateTime cancellationDeadline,
-      String cancellationPolicy) {}
+      String cancellationPolicy,
+      OffsetDateTime cancelledAt,
+      Role cancelledByRole,
+      long version,
+      boolean modifiable,
+      String modificationReason,
+      String modificationPolicy) {}
+
+  /** Importe calculado por el servidor para confirmar una modificación. */
+  public record ReservationChangeQuote(
+      Long reservationId,
+      long version,
+      BigDecimal previousTotal,
+      BigDecimal total,
+      BigDecimal difference,
+      String roomNumber,
+      long nights) {}
 
   /** Datos validados para asignar una tarea a un empleado. */
   public record TaskCreateRequest(
@@ -207,6 +229,52 @@ public class HotelController {
   /** Define UserUpdate para la gestión del hotel. */
   public record UserUpdate(
       @Size(min = 1, max = 255) String name, @Size(max = 255) String phone, Role role) {}
+
+  /** Datos para que un usuario actualice su información personal (HU-03). */
+  public record ProfileUpdateRequest(
+      @NotBlank(message = "El nombre es obligatorio")
+          @Size(min = 2, max = 255, message = "El nombre debe tener entre 2 y 255 caracteres")
+          String name,
+      @Size(max = 255, message = "El teléfono no puede superar 255 caracteres") String phone,
+      @Size(max = 72, message = "La contraseña no puede superar 72 caracteres") String password) {
+    /** Normaliza los datos antes de actualizar. */
+    public ProfileUpdateRequest {
+      if (name != null) {
+        name = name.trim();
+      }
+      if (phone != null) {
+        phone = phone.trim();
+      }
+    }
+  }
+
+  /** Datos para que un administrador cree una cuenta de usuario. */
+  public record AdminUserCreateRequest(
+      @NotBlank(message = "El nombre es obligatorio")
+          @Size(min = 2, max = 255, message = "El nombre debe tener entre 2 y 255 caracteres")
+          String name,
+      @NotBlank(message = "El correo es obligatorio")
+          @Email(message = "El formato de correo no es válido")
+          @Size(max = 255, message = "El correo no puede superar 255 caracteres")
+          String email,
+      @Size(max = 255, message = "El teléfono no puede superar 255 caracteres") String phone,
+      @NotNull(message = "El rol es obligatorio") Role role,
+      @NotBlank(message = "La contraseña es obligatoria")
+          @Size(min = 6, max = 72, message = "La contraseña debe tener entre 6 y 72 caracteres")
+          String password) {
+    /** Normaliza los datos antes de persistir. */
+    public AdminUserCreateRequest {
+      if (name != null) {
+        name = name.trim();
+      }
+      if (email != null) {
+        email = email.trim().toLowerCase(Locale.ROOT);
+      }
+      if (phone != null) {
+        phone = phone.trim();
+      }
+    }
+  }
 
   /** Define RoomDetail para la gestión del hotel. */
   public record RoomDetail(
@@ -267,6 +335,34 @@ public class HotelController {
   PublicUser currentUser(
       @RequestHeader(value = "Authorization", required = false) String authorization) {
     return publicUser(requireUser(authorization, null));
+  }
+
+  /** HU-03: Permite al usuario autenticado modificar su información personal permitida. */
+  @Transactional
+  @PutMapping("/auth/profile")
+  PublicUser updateProfile(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @Valid @RequestBody ProfileUpdateRequest data) {
+    var user = requireUser(authorization, null);
+    if (data.name() != null) {
+      if (data.name().isBlank() || data.name().length() < 2) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "El nombre debe tener al menos 2 caracteres");
+      }
+      user.setName(data.name().trim());
+    }
+    if (data.phone() != null) {
+      user.setPhone(data.phone().trim());
+    }
+    if (data.password() != null && !data.password().isBlank()) {
+      if (data.password().length() < 6 || data.password().length() > 72) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "La contraseña debe tener entre 6 y 72 caracteres");
+      }
+      user.setPassword(passwords.encode(data.password()));
+    }
+    var saved = users.save(user);
+    return publicUser(saved);
   }
 
   @Transactional
@@ -338,6 +434,62 @@ public class HotelController {
     return updateUser(authorization, id, new UserUpdate(null, null, data.role()));
   }
 
+  @Transactional
+  @PostMapping("/users")
+  @ResponseStatus(HttpStatus.CREATED)
+  PublicUser createUser(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @Valid @RequestBody AdminUserCreateRequest data) {
+    requireUser(authorization, Role.ADMIN);
+    if (data.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "La contraseña no puede superar 72 bytes UTF-8");
+    }
+    if (users.findByEmailIgnoreCase(data.email()).isPresent()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Ya existe una cuenta registrada con ese correo");
+    }
+    var u = new UserAccount();
+    u.setName(data.name());
+    u.setEmail(data.email());
+    u.setPhone(data.phone() != null ? data.phone() : "");
+    u.setRole(data.role());
+    u.setPassword(passwords.encode(data.password()));
+    return publicUser(users.save(u));
+  }
+
+  @Transactional
+  @DeleteMapping("/users/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void deleteUser(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id) {
+    var actor = requireUser(authorization, Role.ADMIN);
+    if (actor.getId().equals(id)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "No puedes eliminar tu propia cuenta");
+    }
+    var u =
+        users
+            .findById(id)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
+    if (u.getRole() == Role.ADMIN && users.findByRoleOrderByIdAsc(Role.ADMIN).size() <= 1) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Debe permanecer al menos un administrador");
+    }
+    if (!reservations.findByGuestIdOrderByCheckInDesc(id).isEmpty()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "El usuario tiene reservas asociadas; no es posible eliminarlo");
+    }
+    if (tasks.countByEmployeeIdAndStatusNot(id, TaskStatus.DONE) > 0) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "El empleado tiene tareas pendientes; reasígnalas antes de eliminarlo");
+    }
+    sessions.deleteByUserId(id);
+    users.delete(u);
+  }
+
   @GetMapping("/roles")
   Map<Role, List<String>> roles(
       @RequestHeader(value = "Authorization", required = false) String authorization) {
@@ -346,8 +498,8 @@ public class HotelController {
         Role.GUEST,
         List.of(
             "Consultar habitaciones",
-            "Crear, consultar y cancelar sus propias reservas según la política",
-            "Crear y consultar sus propias solicitudes"),
+            "Crear, consultar, modificar y cancelar sus propias reservas según la política",
+            "Solicitar asistencia durante su estadía y consultar sus propias solicitudes"),
         Role.EMPLOYEE,
         List.of("Consultar y completar sus propias tareas", "Atender solicitudes de huéspedes"),
         Role.ADMIN,
@@ -490,6 +642,7 @@ public class HotelController {
 
   @Transactional
   @DeleteMapping("/rooms/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
   void deleteRoom(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
@@ -500,6 +653,10 @@ public class HotelController {
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+    if (room.getStatus() == RoomStatus.OCCUPIED) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "No se puede eliminar una habitación que actualmente está ocupada");
+    }
     if (reservations.existsByRoomId(id)) {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT,
@@ -608,6 +765,7 @@ public class HotelController {
       @RequestBody Reservation r) {
     final var guest = requireUser(authorization, Role.GUEST);
     r.setId(null);
+    r.setNotes(validatedReservationNotes(r.getNotes()));
     if (r.getRoomId() == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Selecciona una habitación");
     }
@@ -666,6 +824,181 @@ public class HotelController {
     return ResponseEntity.ok(saved);
   }
 
+  /** HU-10: cotiza sin cambiar la reserva ni registrar movimientos. */
+  @Transactional
+  @PostMapping("/reservations/{id}/quote")
+  ReservationChangeQuote quoteReservation(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id,
+      @Valid @RequestBody GuestStayRequests.Change input) {
+    var reservation = ownModifiableReservation(authorization, id, input.expectedVersion());
+    var room = changeRoom(reservation, input);
+    return changeQuote(reservation, room, input);
+  }
+
+  /** HU-10: reserva, ajuste financiero y preparación se actualizan en una transacción. */
+  @Transactional
+  @PatchMapping("/reservations/{id}")
+  ReservationView modifyReservation(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id,
+      @Valid @RequestBody GuestStayRequests.Change input) {
+    var reservation = ownModifiableReservation(authorization, id, input.expectedVersion());
+    var room = changeRoom(reservation, input);
+    var quote = changeQuote(reservation, room, input);
+    if (input.expectedTotal() == null) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Revisa el nuevo total antes de guardar");
+    }
+    if (quote.total().compareTo(input.expectedTotal()) != 0) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "El precio cambió; vuelve a revisar el importe antes de confirmar");
+    }
+    final boolean stayChanged =
+        !Objects.equals(reservation.getRoomId(), input.roomId())
+            || !reservation.getCheckIn().equals(input.checkIn())
+            || !reservation.getCheckOut().equals(input.checkOut());
+    reservation.setRoomId(input.roomId());
+    reservation.setCheckIn(input.checkIn());
+    reservation.setCheckOut(input.checkOut());
+    reservation.setGuests(input.guests());
+    if (input.notes() != null) {
+      reservation.setNotes(input.notes());
+    }
+    reservation.setAmount(quote.total());
+    reservations.saveAndFlush(reservation);
+    if (quote.difference().signum() != 0) {
+      finance.save(
+          new FinanceEntry(
+              quote.difference().signum() > 0 ? EntryType.INCOME : EntryType.EXPENSE,
+              "Modificación reserva #" + id + " · Habitación " + room.getNumber(),
+              quote.difference().abs(),
+              LocalDate.now(clock)));
+    }
+    if (stayChanged) {
+      updatePreparation(reservation, room);
+    }
+    return view(reservation);
+  }
+
+  private String modificationRejection(Reservation reservation) {
+    if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
+      return "Solo puedes modificar reservas confirmadas";
+    }
+    if (!LocalDate.now(clock).isBefore(reservation.getCheckIn())) {
+      return "Los cambios solo se permiten antes del día de llegada, hora de Colombia";
+    }
+    return null;
+  }
+
+  private Reservation ownModifiableReservation(String authorization, Long id, long version) {
+    var guest = requireUser(authorization, Role.GUEST);
+    var reservation = lockedReservation(id);
+    if (!Objects.equals(guest.getId(), reservation.getGuestId())) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo puedes modificar tus reservas");
+    }
+    var rejection = modificationRejection(reservation);
+    if (rejection != null) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, rejection);
+    }
+    if (reservation.getVersion() != version) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "La reserva cambió; recarga Mis reservas y revisa los datos actuales");
+    }
+    return reservation;
+  }
+
+  private Room changeRoom(Reservation reservation, GuestStayRequests.Change input) {
+    validateSearchDates(input.checkIn(), input.checkOut());
+    if (!input.checkIn().isAfter(LocalDate.now(clock))) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "La nueva llegada debe ser posterior a hoy, hora de Colombia");
+    }
+    Room target = null;
+    // Orden estable: dos huéspedes que intercambian habitaciones no bloquean en orden inverso.
+    for (var roomId :
+        List.of(reservation.getRoomId(), input.roomId()).stream().distinct().sorted().toList()) {
+      var locked =
+          rooms
+              .findByIdForUpdate(roomId)
+              .orElseThrow(
+                  () ->
+                      new ResponseStatusException(
+                          HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+      entityManager.refresh(locked);
+      if (roomId.equals(input.roomId())) {
+        target = locked;
+      }
+    }
+    if (target.getStatus() != RoomStatus.AVAILABLE) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "La habitación no está disponible");
+    }
+    if (input.guests() > target.getCapacity()) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "La habitación no admite esa cantidad de huéspedes");
+    }
+    if (reservations.existsByRoomIdAndIdNotAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(
+        input.roomId(),
+        reservation.getId(),
+        ReservationStatus.CANCELLED,
+        input.checkOut(),
+        input.checkIn())) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "La habitación ya está reservada en esas fechas; elige otras fechas u otra habitación");
+    }
+    return target;
+  }
+
+  private ReservationChangeQuote changeQuote(
+      Reservation reservation, Room room, GuestStayRequests.Change input) {
+    var previousTotal = view(reservation).total();
+    long nights = ChronoUnit.DAYS.between(input.checkIn(), input.checkOut());
+    boolean sameStay =
+        Objects.equals(reservation.getRoomId(), input.roomId())
+            && reservation.getCheckIn().equals(input.checkIn())
+            && reservation.getCheckOut().equals(input.checkOut());
+    var total = sameStay ? previousTotal : room.getPrice().multiply(BigDecimal.valueOf(nights));
+    return new ReservationChangeQuote(
+        reservation.getId(),
+        reservation.getVersion(),
+        previousTotal,
+        total,
+        total.subtract(previousTotal),
+        room.getNumber(),
+        nights);
+  }
+
+  private void updatePreparation(Reservation reservation, Room room) {
+    var task = tasks.findByEventKey("RESERVATION_CREATED:" + reservation.getId()).orElse(null);
+    String title = "Preparar habitación " + room.getNumber();
+    String description =
+        "Reserva #"
+            + reservation.getId()
+            + " modificada; preparar para llegada el "
+            + reservation.getCheckIn()
+            + ". Verificar los datos actuales de la reserva.";
+    if (task != null && task.getStatus() == TaskStatus.PENDING) {
+      task.setTitle(title);
+      task.setDescription(description);
+      task.setDueDate(reservation.getCheckIn());
+      tasks.save(task);
+      notifyTask(task.getEmployeeId(), task, "Tu tarea se actualizó por modificación de reserva: ");
+    } else {
+      assignAutomaticTask(
+          "RESERVATION_CHANGED:" + reservation.getId() + ":" + reservation.getVersion(),
+          title,
+          description,
+          reservation.getCheckIn(),
+          "Media");
+    }
+  }
+
+  /**
+   * HU-21: Permite al administrador modificar fechas, habitación, huéspedes y estado de una
+   * reserva.
+   */
   @Transactional
   @PutMapping("/reservations/{id}")
   ReservationView updateReservation(
@@ -683,20 +1016,64 @@ public class HotelController {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT, "Una reserva cancelada o finalizada no puede modificarse");
     }
+
+    Long previousRoomId = r.getRoomId();
+    Long targetRoomId = data.getRoomId() != null ? data.getRoomId() : r.getRoomId();
     var room =
         rooms
-            .findByIdForUpdate(r.getRoomId())
+            .findByIdForUpdate(targetRoomId)
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
-    // La modificación de fechas/precio pertenece a HU-10; no se permite usarla para evadir el plazo
-    // de cancelación.
-    if ((data.getCheckIn() != null && !data.getCheckIn().equals(r.getCheckIn()))
-        || (data.getCheckOut() != null && !data.getCheckOut().equals(r.getCheckOut()))) {
-      throw new ResponseStatusException(
-          HttpStatus.CONFLICT,
-          "Este flujo solo permite actualizar el estado y las observaciones de la reserva");
+
+    LocalDate newCheckIn = data.getCheckIn() != null ? data.getCheckIn() : r.getCheckIn();
+    LocalDate newCheckOut = data.getCheckOut() != null ? data.getCheckOut() : r.getCheckOut();
+
+    boolean stayChanged =
+        !newCheckIn.equals(r.getCheckIn())
+            || !newCheckOut.equals(r.getCheckOut())
+            || !targetRoomId.equals(r.getRoomId());
+
+    if (stayChanged) {
+      validateSearchDates(newCheckIn, newCheckOut);
+      if (r.getStatus() == ReservationStatus.CONFIRMED
+          && newCheckIn.isBefore(LocalDate.now(clock))) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "La fecha de llegada no puede ser anterior a hoy");
+      }
+      boolean conflict =
+          reservations.existsByRoomIdAndIdNotAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(
+              targetRoomId, id, ReservationStatus.CANCELLED, newCheckOut, newCheckIn);
+      if (conflict) {
+        throw new ResponseStatusException(
+            HttpStatus.CONFLICT, "La habitación no está disponible para las fechas seleccionadas");
+      }
+      r.setRoomId(targetRoomId);
+      r.setCheckIn(newCheckIn);
+      r.setCheckOut(newCheckOut);
+      long nights = java.time.temporal.ChronoUnit.DAYS.between(newCheckIn, newCheckOut);
+      BigDecimal newAmount = room.getPrice().multiply(BigDecimal.valueOf(nights));
+      BigDecimal diff = newAmount.subtract(r.getAmount());
+      r.setAmount(newAmount);
+      if (diff.signum() != 0) {
+        finance.save(
+            new FinanceEntry(
+                diff.signum() > 0 ? EntryType.INCOME : EntryType.EXPENSE,
+                "Ajuste administrativo reserva #" + id + " · Habitación " + room.getNumber(),
+                diff.abs(),
+                LocalDate.now(clock)));
+      }
     }
+
+    if (data.getGuests() > 0) {
+      if (data.getGuests() > room.getCapacity()) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST,
+            "La capacidad de la habitación es de máximo " + room.getCapacity() + " personas");
+      }
+      r.setGuests(data.getGuests());
+    }
+
     if (data.getStatus() != null && data.getStatus() != r.getStatus()) {
       if (data.getStatus() == ReservationStatus.CHECKED_IN) {
         if (r.getStatus() != ReservationStatus.CONFIRMED
@@ -722,9 +1099,17 @@ public class HotelController {
       r.setStatus(data.getStatus());
     }
     if (data.getNotes() != null) {
-      r.setNotes(data.getNotes());
+      r.setNotes(validatedReservationNotes(data.getNotes()));
     }
     return view(reservations.save(r));
+  }
+
+  private String validatedReservationNotes(String notes) {
+    if (notes != null && notes.trim().length() > 255) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Las observaciones no pueden superar 255 caracteres");
+    }
+    return notes == null ? null : notes.trim();
   }
 
   @Transactional
@@ -748,13 +1133,14 @@ public class HotelController {
     if (rejection != null) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, rejection);
     }
-    var room =
+    final var room =
         rooms
             .findByIdForUpdate(r.getRoomId())
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
     r.setStatus(ReservationStatus.CANCELLED);
+    r.recordCancellation(OffsetDateTime.now(clock), actor.getRole());
     reservations.save(r);
     releaseRoom(r, room);
     // HU-14: se registra el reembolso para que el balance siga siendo coherente tras la
@@ -769,10 +1155,13 @@ public class HotelController {
   }
 
   private Reservation lockedReservation(Long id) {
-    return reservations
-        .findByIdForUpdate(id)
-        .orElseThrow(
-            () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reserva no encontrada"));
+    var reservation =
+        reservations
+            .findByIdForUpdate(id)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reserva no encontrada"));
+    entityManager.refresh(reservation);
+    return reservation;
   }
 
   private void releaseRoom(Reservation r, Room room) {
@@ -831,6 +1220,7 @@ public class HotelController {
             priority);
     task.setEventKey(eventKey);
     tasks.save(task);
+    notifyTask(task.getEmployeeId(), task, "Nueva tarea automática: ");
   }
 
   @GetMapping("/requests")
@@ -850,27 +1240,99 @@ public class HotelController {
         : requests.findByGuestIdOrderByCreatedAtDesc(guestId);
   }
 
+  /** HU-12: solo ofrece estadías vigentes del huésped autenticado. */
+  @GetMapping("/requests/eligible-reservations")
+  List<ReservationView> assistanceReservations(
+      @RequestHeader(value = "Authorization", required = false) String authorization) {
+    var guest = requireUser(authorization, Role.GUEST);
+    return reservations.findByGuestIdOrderByCheckInDesc(guest.getId()).stream()
+        .filter(this::eligibleForAssistance)
+        .map(this::view)
+        .toList();
+  }
+
+  private boolean eligibleForAssistance(Reservation reservation) {
+    var today = LocalDate.now(clock);
+    return (reservation.getStatus() == ReservationStatus.CONFIRMED
+            || reservation.getStatus() == ReservationStatus.CHECKED_IN)
+        && !today.isBefore(reservation.getCheckIn())
+        && today.isBefore(reservation.getCheckOut());
+  }
+
+  @Transactional
   @PostMapping("/requests")
   ServiceRequest createRequest(
       @RequestHeader(value = "Authorization", required = false) String authorization,
-      @RequestBody ServiceRequest r) {
-    final var guest = requireUser(authorization, Role.GUEST);
-    r.setId(null);
+      @Valid @RequestBody GuestStayRequests.Assistance input) {
+    var guest = requireUser(authorization, Role.GUEST);
+    var reservation = lockedReservation(input.reservationId());
+    if (!Objects.equals(guest.getId(), reservation.getGuestId())) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Selecciona una estadía propia");
+    }
+    var existing = requests.findByClientRequestId(input.clientRequestId()).orElse(null);
+    if (existing != null) {
+      if (!Objects.equals(existing.getGuestId(), guest.getId())) {
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solicitud de otro huésped");
+      }
+      if (!Objects.equals(existing.getReservationId(), input.reservationId())
+          || !Objects.equals(existing.getCategory(), input.category())
+          || !Objects.equals(existing.getNotes(), input.notes())) {
+        throw new ResponseStatusException(
+            HttpStatus.CONFLICT, "Ese identificador ya corresponde a otra solicitud");
+      }
+      return existing;
+    }
+    if (!eligibleForAssistance(reservation)) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Solo puedes solicitar asistencia durante una estadía vigente");
+    }
+    var room =
+        rooms
+            .findById(reservation.getRoomId())
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+    var r = new ServiceRequest();
     r.setGuestId(guest.getId());
+    r.setReservationId(reservation.getId());
+    r.setClientRequestId(input.clientRequestId());
+    r.setRoomNumber(room.getNumber());
+    r.setCategory(input.category());
+    r.setNotes(input.notes());
     r.setStatus(RequestStatus.OPEN);
     r.setCreatedAt(LocalDateTime.now(clock));
-    return requests.save(r);
+    try {
+      return requests.saveAndFlush(r);
+    } catch (DataIntegrityViolationException ex) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "El identificador ya se utilizó; recarga tus solicitudes");
+    }
   }
 
+  @Transactional
   @PutMapping("/requests/{id}")
   ServiceRequest updateRequest(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id,
-      @RequestBody ServiceRequest data) {
+      @Valid @RequestBody GuestStayRequests.AssistanceStatus data) {
     requireStaff(authorization);
-    var r = requests.findById(id).orElseThrow();
-    if (data.getStatus() != null) {
-      r.setStatus(data.getStatus());
+    var r =
+        requests
+            .findByIdForUpdate(id)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
+    entityManager.refresh(r);
+    if (data.status() == r.getStatus()) {
+      return r;
+    }
+    if ((r.getStatus() == RequestStatus.OPEN && data.status() == RequestStatus.IN_PROGRESS)
+        || (r.getStatus() == RequestStatus.IN_PROGRESS
+            && data.status() == RequestStatus.RESOLVED)) {
+      r.setStatus(data.status());
+    } else {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "La atención debe avanzar de Abierta a En progreso y después a Resuelta");
     }
     return requests.save(r);
   }
@@ -901,6 +1363,35 @@ public class HotelController {
     return tasks.findByEmployeeIdOrderByDueDateAsc(employee.getId());
   }
 
+  @GetMapping("/tasks/notifications")
+  List<TaskNotification> getMyTaskNotifications(
+      @RequestHeader(value = "Authorization", required = false) String authorization) {
+    var employee = requireUser(authorization, Role.EMPLOYEE);
+    return taskNotifications.findTop50ByEmployeeIdAndReadAtIsNullOrderByIdDesc(employee.getId());
+  }
+
+  @Transactional
+  @PatchMapping("/tasks/notifications/{id}/read")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void readTaskNotification(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id) {
+    var employee = requireUser(authorization, Role.EMPLOYEE);
+    if (!taskNotifications.existsByIdAndEmployeeId(id, employee.getId())) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Aviso no encontrado");
+    }
+    taskNotifications.markRead(id, employee.getId(), OffsetDateTime.now(clock));
+  }
+
+  private void notifyTask(Long employeeId, StaffTask task, String prefix) {
+    if (employeeId != null) {
+      taskNotifications.save(
+          new TaskNotification(
+              employeeId, task.getId(), prefix + task.getTitle(), OffsetDateTime.now(clock)));
+    }
+  }
+
+  @Transactional
   @PostMapping("/tasks")
   StaffTask createTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -915,16 +1406,20 @@ public class HotelController {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "La tarea solo puede asignarse a un empleado");
     }
-    return tasks.save(
-        new StaffTask(
-            employee.getId(),
-            input.title(),
-            input.description(),
-            TaskStatus.PENDING,
-            input.dueDate(),
-            input.priority()));
+    var task =
+        tasks.save(
+            new StaffTask(
+                employee.getId(),
+                input.title(),
+                input.description(),
+                TaskStatus.PENDING,
+                input.dueDate(),
+                input.priority()));
+    notifyTask(employee.getId(), task, "Nueva tarea asignada: ");
+    return task;
   }
 
+  @Transactional
   @PutMapping("/tasks/{id}")
   StaffTask updateTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -933,9 +1428,17 @@ public class HotelController {
     requireUser(authorization, Role.ADMIN);
     var t =
         tasks
-            .findById(id)
+            .findLockedById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea no encontrada"));
+    final var previousEmployee = t.getEmployeeId();
+    final boolean changed =
+        (data.getStatus() != null && data.getStatus() != t.getStatus())
+            || (data.getTitle() != null && !Objects.equals(data.getTitle(), t.getTitle()))
+            || (data.getDescription() != null
+                && !Objects.equals(data.getDescription(), t.getDescription()))
+            || (data.getDueDate() != null && !Objects.equals(data.getDueDate(), t.getDueDate()))
+            || (data.getPriority() != null && !Objects.equals(data.getPriority(), t.getPriority()));
     if (data.getEmployeeId() != null) {
       var employee =
           users
@@ -964,9 +1467,24 @@ public class HotelController {
     if (data.getPriority() != null) {
       t.setPriority(data.getPriority());
     }
-    return tasks.save(t);
+    tasks.save(t);
+    if (!Objects.equals(previousEmployee, t.getEmployeeId())) {
+      if (previousEmployee != null) {
+        taskNotifications.save(
+            new TaskNotification(
+                previousEmployee,
+                t.getId(),
+                "La tarea #" + t.getId() + " se reasignó a otro empleado.",
+                OffsetDateTime.now(clock)));
+      }
+      notifyTask(t.getEmployeeId(), t, "Nueva tarea asignada: ");
+    } else if (changed) {
+      notifyTask(t.getEmployeeId(), t, "Tu tarea se actualizó: ");
+    }
+    return t;
   }
 
+  @Transactional
   @PatchMapping("/tasks/{id}/status")
   StaffTask updateMyTaskStatus(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -975,7 +1493,7 @@ public class HotelController {
     var employee = requireUser(authorization, Role.EMPLOYEE);
     var task =
         tasks
-            .findById(id)
+            .findLockedById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea no encontrada"));
     if (!Objects.equals(task.getEmployeeId(), employee.getId())) {
@@ -995,6 +1513,7 @@ public class HotelController {
     return tasks.save(task);
   }
 
+  @Transactional
   @PostMapping(value = "/tasks/{id}/complete", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   ResponseEntity<?> completeTask(
       @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -1004,7 +1523,7 @@ public class HotelController {
     var employee = requireUser(authorization, Role.EMPLOYEE);
     var task =
         tasks
-            .findById(id)
+            .findLockedById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea no encontrada"));
     if (!Objects.equals(task.getEmployeeId(), employee.getId())) {
@@ -1064,12 +1583,15 @@ public class HotelController {
   @PostMapping("/finance")
   FinanceEntry createFinance(
       @RequestHeader(value = "Authorization", required = false) String authorization,
-      @RequestBody FinanceEntry e) {
+      @Valid @RequestBody FinanceRequests.Movement input) {
     requireUser(authorization, Role.ADMIN);
-    if (e.getDate() == null) {
-      e.setDate(LocalDate.now(clock));
+    var date = input.date() == null ? LocalDate.now(clock) : input.date();
+    if (date.isAfter(LocalDate.now(clock))) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "Un movimiento real no puede tener fecha futura; programa un gasto");
     }
-    return finance.save(e);
+    return finance.save(new FinanceEntry(input.type(), input.concept(), input.amount(), date));
   }
 
   // HU-15: recordatorios programados de gastos necesarios.
@@ -1083,56 +1605,209 @@ public class HotelController {
   @PostMapping("/reminders")
   ExpenseReminder createReminder(
       @RequestHeader(value = "Authorization", required = false) String authorization,
-      @RequestBody ExpenseReminder r) {
+      @Valid @RequestBody FinanceRequests.Reminder input) {
     requireUser(authorization, Role.ADMIN);
-    if (r.getStatus() == null) {
-      r.setStatus(ReminderStatus.PENDING);
-    }
-    if (r.getDueDate() == null) {
-      r.setDueDate(LocalDate.now(clock));
-    }
-    return reminders.save(r);
+    validateReminderDate(input.dueDate());
+    return reminders.save(
+        new ExpenseReminder(
+            input.concept(),
+            input.category(),
+            input.estimatedAmount(),
+            input.dueDate(),
+            ReminderStatus.PENDING));
   }
 
+  @Transactional
   @PutMapping("/reminders/{id}")
   ExpenseReminder updateReminder(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id,
-      @RequestBody ExpenseReminder data) {
+      @Valid @RequestBody FinanceRequests.ReminderUpdate data) {
     requireUser(authorization, Role.ADMIN);
-    var r = reminders.findById(id).orElseThrow();
-    if (data.getStatus() != null) {
-      r.setStatus(data.getStatus());
+    var r = lockedReminder(id);
+    requirePendingReminder(r);
+    if (data.status() != null && data.status() != ReminderStatus.PENDING) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "Usa Registrar gasto para atender el recordatorio y actualizar el balance");
     }
-    if (data.getConcept() != null) {
-      r.setConcept(data.getConcept());
+    if (data.concept() != null) {
+      r.setConcept(data.concept());
     }
-    if (data.getDueDate() != null) {
-      r.setDueDate(data.getDueDate());
+    if (data.category() != null) {
+      r.setCategory(data.category());
+    }
+    if (data.estimatedAmount() != null) {
+      r.setEstimatedAmount(data.estimatedAmount());
+    }
+    if (data.dueDate() != null) {
+      validateReminderDate(data.dueDate());
+      r.setDueDate(data.dueDate());
     }
     return reminders.save(r);
   }
 
+  @Transactional
   @DeleteMapping("/reminders/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
   void deleteReminder(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
     requireUser(authorization, Role.ADMIN);
-    reminders.deleteById(id);
+    var r = lockedReminder(id);
+    requirePendingReminder(r);
+    reminders.delete(r);
   }
 
   /** Marca el recordatorio como atendido y registra el gasto real en el balance. */
+  @Transactional
   @PostMapping("/reminders/{id}/pay")
   FinanceEntry payReminder(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
     requireUser(authorization, Role.ADMIN);
-    var r = reminders.findById(id).orElseThrow();
+    var r = lockedReminder(id);
+    if (r.getPaymentEntryId() != null) {
+      return finance
+          .findById(r.getPaymentEntryId())
+          .orElseThrow(
+              () ->
+                  new ResponseStatusException(
+                      HttpStatus.CONFLICT, "Revisa el movimiento asociado al pago"));
+    }
+    requirePendingReminder(r);
+    // También protege recordatorios heredados que no pasaron por el contrato validado.
+    if (r.getEstimatedAmount() == null
+        || r.getEstimatedAmount().signum() <= 0
+        || r.getConcept() == null
+        || r.getConcept().isBlank()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Corrige el concepto y el valor del recordatorio antes de pagarlo");
+    }
+    var entry =
+        finance.saveAndFlush(
+            new FinanceEntry(
+                EntryType.EXPENSE, r.getConcept(), r.getEstimatedAmount(), LocalDate.now(clock)));
+    r.setPaymentEntryId(entry.getId());
     r.setStatus(ReminderStatus.DONE);
     reminders.save(r);
-    return finance.save(
-        new FinanceEntry(
-            EntryType.EXPENSE, r.getConcept(), r.getEstimatedAmount(), LocalDate.now(clock)));
+    return entry;
+  }
+
+  private ExpenseReminder lockedReminder(Long id) {
+    var reminder =
+        reminders
+            .findByIdForUpdate(id)
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Recordatorio no encontrado"));
+    entityManager.refresh(reminder);
+    return reminder;
+  }
+
+  private void requirePendingReminder(ExpenseReminder reminder) {
+    if (reminder.getStatus() != ReminderStatus.PENDING || reminder.getPaymentEntryId() != null) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "El recordatorio atendido no puede modificarse ni pagarse de nuevo");
+    }
+  }
+
+  private void validateReminderDate(LocalDate date) {
+    if (date.isBefore(LocalDate.now(clock))) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "La fecha límite de un nuevo recordatorio no puede estar en el pasado");
+    }
+  }
+
+  // HU-37: Recomendación de personal de aseo según ocupación y estacionalidad.
+  @GetMapping({"/staff/cleaning-recommendation", "/cleaning-recommendation"})
+  StaffRecommendation getCleaningStaffRecommendation(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @RequestParam(value = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+          LocalDate date) {
+    requireUser(authorization, Role.ADMIN);
+    var targetDate = date == null ? LocalDate.now(clock) : date;
+    return calculateCleaningStaffRecommendation(targetDate);
+  }
+
+  StaffRecommendation calculateCleaningStaffRecommendation(LocalDate targetDate) {
+    var allRooms = rooms.findAll();
+    var allRes = reservations.findAll();
+    int totalRooms = allRooms.size();
+
+    var activeOnDate =
+        allRes.stream()
+            .filter(
+                r ->
+                    r.getStatus() != ReservationStatus.CANCELLED
+                        && r.getStatus() != ReservationStatus.COMPLETED
+                        && !r.getCheckIn().isAfter(targetDate)
+                        && !r.getCheckOut().isBefore(targetDate))
+            .toList();
+
+    long checkoutsOnDate =
+        allRes.stream()
+            .filter(
+                r ->
+                    r.getStatus() != ReservationStatus.CANCELLED
+                        && r.getStatus() != ReservationStatus.COMPLETED
+                        && r.getCheckOut().isEqual(targetDate))
+            .count();
+
+    long occupiedCount;
+    if (targetDate.isEqual(LocalDate.now(clock))) {
+      occupiedCount =
+          Math.max(
+              allRooms.stream().filter(r -> r.getStatus() == RoomStatus.OCCUPIED).count(),
+              activeOnDate.size());
+    } else {
+      occupiedCount = activeOnDate.size();
+    }
+
+    long occupancyRate = totalRooms == 0 ? 0 : Math.round(occupiedCount * 100.0 / totalRooms);
+
+    int month = targetDate.getMonthValue();
+    boolean isHighSeason =
+        (month == 12 || month == 1 || month == 6 || month == 7 || occupancyRate >= 75);
+    String season = isHighSeason ? "HIGH" : "REGULAR";
+    String seasonDescription = isHighSeason ? "Temporada Alta" : "Temporada Regular";
+    int ratio = isHighSeason ? 3 : 4;
+
+    int effectiveRooms = (int) occupiedCount + (int) Math.ceil(checkoutsOnDate * 0.5);
+    int recommended =
+        totalRooms == 0 ? 0 : Math.max(1, (int) Math.ceil((double) effectiveRooms / ratio));
+
+    String personText = recommended == 1 ? "1 persona de aseo" : recommended + " personas de aseo";
+    String checkoutsText =
+        checkoutsOnDate == 0
+            ? "sin salidas de habitaciones hoy"
+            : (checkoutsOnDate == 1
+                ? "1 habitación por entregar hoy"
+                : checkoutsOnDate + " habitaciones por entregar hoy");
+    String rationale =
+        String.format(
+            Locale.ROOT,
+            "Con el hotel al %d%% de ocupación en %s y %s, "
+                + "se sugiere programar %s para atender cómodamente la limpieza.",
+            occupancyRate,
+            seasonDescription,
+            checkoutsText,
+            personText);
+
+    return new StaffRecommendation(
+        targetDate,
+        totalRooms,
+        occupiedCount,
+        checkoutsOnDate,
+        activeOnDate.size(),
+        occupancyRate,
+        season,
+        seasonDescription,
+        ratio,
+        recommended,
+        rationale);
   }
 
   @GetMapping("/dashboard")
@@ -1167,7 +1842,8 @@ public class HotelController {
                     r.getStatus() != ReservationStatus.CANCELLED
                         && r.getStatus() != ReservationStatus.COMPLETED)
             .count();
-    int suggested = Math.max(1, (int) Math.ceil((occupied + active) / 4.0));
+    var cleaningRec = calculateCleaningStaffRecommendation(LocalDate.now(clock));
+    int suggested = cleaningRec.recommendedCleaners();
     long openRequests =
         requests.findAll().stream().filter(x -> x.getStatus() != RequestStatus.RESOLVED).count();
     var pending =
@@ -1197,6 +1873,8 @@ public class HotelController {
     result.put("expenses", expense);
     result.put("balance", income.subtract(expense));
     result.put("suggestedCleaners", suggested);
+    result.put("cleaningRationale", cleaningRec.rationale());
+    result.put("cleaningRecommendation", cleaningRec);
     result.put("openRequests", openRequests);
     result.put("pendingReminders", pending.size());
     result.put("remindersDueSoon", dueSoon);
@@ -1250,7 +1928,14 @@ public class HotelController {
         cancellationPolicy.rejection(r) == null,
         cancellationPolicy.rejection(r),
         cancellationPolicy.deadline(r),
-        cancellationPolicy.description());
+        cancellationPolicy.description(),
+        r.getCancelledAt(),
+        r.getCancelledByRole(),
+        r.getVersion(),
+        modificationRejection(r) == null,
+        modificationRejection(r),
+        "Puedes cambiar fechas, habitación, huéspedes y observaciones antes del día de llegada, "
+            + "hora de Colombia. La nueva llegada debe ser posterior a hoy.");
   }
 
   private PublicUser publicUser(UserAccount u) {
