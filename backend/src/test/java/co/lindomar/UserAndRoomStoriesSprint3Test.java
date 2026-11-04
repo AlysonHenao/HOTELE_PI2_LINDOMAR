@@ -133,7 +133,7 @@ class UserAndRoomStoriesSprint3Test {
   @Test
   void deleteRoomRejectsRoomWithReservations() throws Exception {
     var room = createRoom("903", RoomStatus.AVAILABLE);
-    var guest = users.findByEmailIgnoreCase("guest@lindomar.co").orElseThrow();
+    var guest = users.findByEmailIgnoreCase("huesped@lindomar.co").orElseThrow();
 
     var res = new Reservation();
     res.setRoomId(room.getId());
@@ -159,12 +159,12 @@ class UserAndRoomStoriesSprint3Test {
 
     mvc.perform(
             delete("/api/rooms/{id}", room.getId())
-                .header("Authorization", auth("guest@lindomar.co")))
+                .header("Authorization", auth("huesped@lindomar.co")))
         .andExpect(status().isForbidden());
 
     mvc.perform(
             delete("/api/rooms/{id}", room.getId())
-                .header("Authorization", auth("employee@lindomar.co")))
+                .header("Authorization", auth("empleado@lindomar.co")))
         .andExpect(status().isForbidden());
 
     mvc.perform(delete("/api/rooms/{id}", room.getId())).andExpect(status().isUnauthorized());
@@ -319,7 +319,7 @@ class UserAndRoomStoriesSprint3Test {
 
   @Test
   void adminCannotDeleteUserWithReservations() throws Exception {
-    var guest = users.findByEmailIgnoreCase("guest@lindomar.co").orElseThrow();
+    var guest = users.findByEmailIgnoreCase("huesped@lindomar.co").orElseThrow();
     var room = rooms.findAll().getFirst();
 
     var res = new Reservation();
@@ -342,7 +342,7 @@ class UserAndRoomStoriesSprint3Test {
 
   @Test
   void adminCannotDeleteEmployeeWithPendingTasks() throws Exception {
-    var employee = users.findByEmailIgnoreCase("employee@lindomar.co").orElseThrow();
+    var employee = users.findByEmailIgnoreCase("empleado@lindomar.co").orElseThrow();
 
     var task =
         new StaffTask(
@@ -373,12 +373,12 @@ class UserAndRoomStoriesSprint3Test {
 
     mvc.perform(
             post("/api/users")
-                .header("Authorization", auth("guest@lindomar.co"))
+                .header("Authorization", auth("huesped@lindomar.co"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(newUserData)))
         .andExpect(status().isForbidden());
 
-    mvc.perform(delete("/api/users/{id}", 1L).header("Authorization", auth("employee@lindomar.co")))
+    mvc.perform(delete("/api/users/{id}", 1L).header("Authorization", auth("empleado@lindomar.co")))
         .andExpect(status().isForbidden());
   }
 
@@ -390,7 +390,7 @@ class UserAndRoomStoriesSprint3Test {
   void adminCanModifyReservationRoomDatesAndGuests() throws Exception {
     var room1 = createRoom("701", RoomStatus.AVAILABLE);
     var room2 = createRoom("702", RoomStatus.AVAILABLE);
-    var guest = users.findByEmailIgnoreCase("guest@lindomar.co").orElseThrow();
+    var guest = users.findByEmailIgnoreCase("huesped@lindomar.co").orElseThrow();
 
     var res = new Reservation();
     res.setRoomId(room1.getId());
@@ -433,7 +433,7 @@ class UserAndRoomStoriesSprint3Test {
   @Test
   void adminModifyReservationRejectsOccupiedRoomConflict() throws Exception {
     var room = createRoom("703", RoomStatus.AVAILABLE);
-    var guest = users.findByEmailIgnoreCase("guest@lindomar.co").orElseThrow();
+    var guest = users.findByEmailIgnoreCase("huesped@lindomar.co").orElseThrow();
 
     // Reserva 1 existente: 20 a 25 oct
     var existing = new Reservation();
@@ -477,9 +477,9 @@ class UserAndRoomStoriesSprint3Test {
 
   @Test
   void guestCanViewOwnProfile() throws Exception {
-    mvc.perform(get("/api/auth/me").header("Authorization", auth("guest@lindomar.co")))
+    mvc.perform(get("/api/auth/me").header("Authorization", auth("huesped@lindomar.co")))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.email").value("guest@lindomar.co"))
+        .andExpect(jsonPath("$.email").value("huesped@lindomar.co"))
         .andExpect(jsonPath("$.role").value("GUEST"))
         .andExpect(jsonPath("$.name").isString());
   }
@@ -493,16 +493,16 @@ class UserAndRoomStoriesSprint3Test {
 
     mvc.perform(
             put("/api/auth/profile")
-                .header("Authorization", auth("guest@lindomar.co"))
+                .header("Authorization", auth("huesped@lindomar.co"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(update)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.name").value("Laura Huesped Actualizada"))
         .andExpect(jsonPath("$.phone").value("3209876543"))
-        .andExpect(jsonPath("$.email").value("guest@lindomar.co"))
+        .andExpect(jsonPath("$.email").value("huesped@lindomar.co"))
         .andExpect(jsonPath("$.role").value("GUEST"));
 
-    var guest = users.findByEmailIgnoreCase("guest@lindomar.co").orElseThrow();
+    var guest = users.findByEmailIgnoreCase("huesped@lindomar.co").orElseThrow();
     assertThat(guest.getName()).isEqualTo("Laura Huesped Actualizada");
     assertThat(guest.getPhone()).isEqualTo("3209876543");
   }
@@ -516,7 +516,7 @@ class UserAndRoomStoriesSprint3Test {
 
     mvc.perform(
             put("/api/auth/profile")
-                .header("Authorization", auth("guest@lindomar.co"))
+                .header("Authorization", auth("huesped@lindomar.co"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(update)))
         .andExpect(status().isOk());
@@ -528,7 +528,7 @@ class UserAndRoomStoriesSprint3Test {
                 .content(
                     json.writeValueAsString(
                         Map.of(
-                            "email", "guest@lindomar.co",
+                            "email", "huesped@lindomar.co",
                             "password", "nuevaClaveSuperSegura123"))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.user.name").value("Usuario Con Nueva Clave"));
@@ -540,7 +540,7 @@ class UserAndRoomStoriesSprint3Test {
 
     mvc.perform(
             put("/api/auth/profile")
-                .header("Authorization", auth("guest@lindomar.co"))
+                .header("Authorization", auth("huesped@lindomar.co"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(invalidName)))
         .andExpect(status().isBadRequest());
@@ -549,7 +549,7 @@ class UserAndRoomStoriesSprint3Test {
 
     mvc.perform(
             put("/api/auth/profile")
-                .header("Authorization", auth("guest@lindomar.co"))
+                .header("Authorization", auth("huesped@lindomar.co"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(shortPassword)))
         .andExpect(status().isBadRequest());
