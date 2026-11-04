@@ -548,19 +548,28 @@ public class HotelController {
       room.setServices(room.getServices().trim());
     }
     if (room.getImageUrl() != null && !room.getImageUrl().isBlank()) {
-      try {
-        var uri = java.net.URI.create(room.getImageUrl().trim());
-        if (!"https".equalsIgnoreCase(uri.getScheme())
-            || uri.getHost() == null
-            || uri.getUserInfo() != null
-            || room.getImageUrl().length() > 2048) {
-          throw new IllegalArgumentException();
+      String trimmed = room.getImageUrl().trim();
+      if (trimmed.startsWith("/")) {
+        if (trimmed.length() > 2048) {
+          throw new ResponseStatusException(
+              HttpStatus.BAD_REQUEST, "La fotografía debe usar una URL HTTPS válida");
         }
-      } catch (IllegalArgumentException ex) {
-        throw new ResponseStatusException(
-            HttpStatus.BAD_REQUEST, "La fotografía debe usar una URL HTTPS válida");
+        room.setImageUrl(trimmed);
+      } else {
+        try {
+          var uri = java.net.URI.create(trimmed);
+          if (!"https".equalsIgnoreCase(uri.getScheme())
+              || uri.getHost() == null
+              || uri.getUserInfo() != null
+              || trimmed.length() > 2048) {
+            throw new IllegalArgumentException();
+          }
+        } catch (IllegalArgumentException ex) {
+          throw new ResponseStatusException(
+              HttpStatus.BAD_REQUEST, "La fotografía debe usar una URL HTTPS válida");
+        }
+        room.setImageUrl(trimmed);
       }
-      room.setImageUrl(room.getImageUrl().trim());
     } else {
       room.setImageUrl(null);
     }
