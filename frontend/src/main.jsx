@@ -2008,6 +2008,8 @@ function AdminRooms({ notify }) {
   const [creating, setCreating] = useState(false);
   const [statusError, setStatusError] = useState('');
   const [updating, setUpdating] = useState(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 6;
   const load = () => api('/rooms/all').then(setRooms);
   useEffect(() => {
     load();
@@ -2054,6 +2056,11 @@ function AdminRooms({ notify }) {
     }
   };
 
+  const totalPages = Math.max(1, Math.ceil(rooms.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedRooms = rooms.slice(startIndex, startIndex + pageSize);
+
   return (
     <>
       <div className="section-head">
@@ -2085,7 +2092,7 @@ function AdminRooms({ notify }) {
             </tr>
           </thead>
           <tbody>
-            {rooms.map((r) => (
+            {paginatedRooms.map((r) => (
               <tr key={r.id}>
                 <td>
                   <strong>{r.number}</strong>
@@ -2138,6 +2145,35 @@ function AdminRooms({ notify }) {
             ))}
           </tbody>
         </table>
+        {rooms.length > 0 && (
+          <div className="table-pagination">
+            <span>
+              Mostrando {startIndex + 1}–{Math.min(startIndex + pageSize, rooms.length)} de{' '}
+              {rooms.length} habitaciones
+            </span>
+            <div className="pagination-controls">
+              <button
+                type="button"
+                className="secondary"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {(editing || creating) && (
@@ -2469,6 +2505,8 @@ function AdminUsers({ currentUser, notify }) {
   const [roles, setRoles] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 8;
   useEffect(() => {
     Promise.all([api('/users'), api('/roles')])
       .then(([list, permissions]) => {
@@ -2499,12 +2537,18 @@ function AdminUsers({ currentUser, notify }) {
       setBusy(null);
     }
   };
+
+  const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedUsers = users.slice(startIndex, startIndex + pageSize);
+
   return (
     <>
       <div className="section-head">
         <div>
-          <h3>Equipo y usuarios</h3>
-          <p className="muted">Cuentas registradas y su rol en el sistema.</p>
+          <h3>Perfiles del sistema</h3>
+          <p className="muted">Permisos y capacidades asociadas a cada rol operativo.</p>
         </div>
       </div>
       {error && (
@@ -2530,32 +2574,102 @@ function AdminUsers({ currentUser, notify }) {
           </section>
         ))}
       </div>
-      <div className="user-grid">
-        {users.map((u) => (
-          <article className="user-card" key={u.id}>
-            <div className="avatar large">{initials(u.name)}</div>
-            <div>
-              <h3>{u.name}</h3>
-              <p>{u.email}</p>
-              <small>{u.phone}</small>
-            </div>
-            <label>
-              Rol de {u.name}
-              <select
-                value={u.role}
-                disabled={busy !== null || u.id === currentUser.id}
-                onChange={(e) => changeRole(u, e.target.value)}
+
+      <div className="section-head" style={{ marginTop: '32px' }}>
+        <div>
+          <h3>Usuarios registrados</h3>
+          <p className="muted">Cuentas con acceso a la plataforma y asignación de roles.</p>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Contacto</th>
+              <th>Rol asignado</th>
+              <th>Asignar rol</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginatedUsers.map((u) => {
+              const isCurrent = u.id === currentUser.id;
+              return (
+                <tr key={u.id}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div className="avatar">{initials(u.name)}</div>
+                      <div>
+                        <strong>{u.name}</strong>
+                        <small>{u.email}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span>{u.phone || 'No registrado'}</span>
+                  </td>
+                  <td>
+                    <span className={`role-badge ${u.role?.toLowerCase()}`}>
+                      {label[u.role] || u.role}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <select
+                        aria-label={`Rol de ${u.name}`}
+                        value={u.role}
+                        disabled={busy !== null || isCurrent}
+                        onChange={(e) => changeRole(u, e.target.value)}
+                        style={{ minWidth: '150px' }}
+                      >
+                        {['GUEST', 'EMPLOYEE', 'ADMIN'].map((role) => (
+                          <option key={role} value={role}>
+                            {label[role]}
+                          </option>
+                        ))}
+                      </select>
+                      {isCurrent && (
+                        <small style={{ color: 'var(--muted)', fontSize: '11px' }}>
+                          Tu cuenta activa (no modificable)
+                        </small>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {users.length > 0 && (
+          <div className="table-pagination">
+            <span>
+              Mostrando {startIndex + 1}–{Math.min(startIndex + pageSize, users.length)} de{' '}
+              {users.length} usuarios
+            </span>
+            <div className="pagination-controls">
+              <button
+                type="button"
+                className="secondary"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
-                {['GUEST', 'EMPLOYEE', 'ADMIN'].map((role) => (
-                  <option key={role} value={role}>
-                    {label[role]}
-                  </option>
-                ))}
-              </select>
-              {u.id === currentUser.id && <small>Otro administrador debe cambiar tu rol.</small>}
-            </label>
-          </article>
-        ))}
+                Anterior
+              </button>
+              <span>
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

@@ -1264,14 +1264,13 @@ public class HotelController {
     String rationale =
         String.format(
             Locale.ROOT,
-            "Para una ocupación del %d%% en %s con %d salida(s) de habitación, "
-                + "se recomiendan %d persona(s) de aseo (ratio: 1 persona por cada %d"
-                + " habitaciones).",
+            "Con el hotel al %d%% de ocupación en %s y %d salida(s) para hoy, "
+                + "se sugiere programar %d persona(s) de aseo para atender "
+                + "cómodamente la limpieza.",
             occupancyRate,
             seasonDescription,
             checkoutsOnDate,
-            recommended,
-            ratio);
+            recommended);
 
     return new StaffRecommendation(
         targetDate,
