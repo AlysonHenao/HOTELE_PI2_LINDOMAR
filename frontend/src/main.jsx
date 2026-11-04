@@ -1,8 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import logoUrl from '/logo.svg';
 import {
+  Bed,
   BedDouble,
+  Building,
+  Dog,
+  Fan,
+  Footprints,
+  Trees,
+  Wind,
   Bell,
   BellRing,
   CalendarClock,
@@ -833,7 +840,7 @@ function GuestHome({ user, go }) {
     <>
       <section className="welcome">
         <div>
-          <span className="eyebrow">TU RINCÓN CARIBEÑO</span>
+          <span className="eyebrow">HOSPITALIDAD Y CONFORT</span>
           <h1>Hola, {user.name.split(' ')[0]}</h1>
           <p>
             Tu habitación, tus planes y tu ritmo. Desde aquí controlas todo lo que hace especial tu
@@ -919,6 +926,94 @@ function GuestHome({ user, go }) {
   );
 }
 
+const ROOM_IMAGES = {
+  101: '/rooms/habitacion-1.jpg',
+  102: '/rooms/habitacion-2.jpg',
+  201: '/rooms/habitacion-1.jpg',
+  202: '/hotel/lobby.jpg',
+  203: '/hotel/sala.jpg',
+  301: '/hotel/recepcion.jpg',
+  302: '/rooms/habitacion-2.jpg',
+};
+
+const SINCELEJO_ROOMS = {
+  101: {
+    type: 'Sencilla',
+    capacity: 1,
+    price: 80000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/rooms/habitacion-1.jpg',
+  },
+  102: {
+    type: 'Sencilla',
+    capacity: 1,
+    price: 80000,
+    services: 'Wi-Fi · Ventilador · TV · Baño privado',
+    imageUrl: '/rooms/habitacion-2.jpg',
+  },
+  201: {
+    type: 'Doble',
+    capacity: 2,
+    price: 100000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/rooms/habitacion-1.jpg',
+  },
+  202: {
+    type: 'Doble',
+    capacity: 2,
+    price: 100000,
+    services: 'Wi-Fi · Ventilador · TV · Baño privado',
+    imageUrl: '/hotel/lobby.jpg',
+  },
+  203: {
+    type: 'Familiar',
+    capacity: 3,
+    price: 180000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/hotel/sala.jpg',
+  },
+  301: {
+    type: 'Familiar',
+    capacity: 4,
+    price: 240000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/hotel/recepcion.jpg',
+  },
+  302: {
+    type: 'Familiar',
+    capacity: 6,
+    price: 360000,
+    services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
+    imageUrl: '/rooms/habitacion-2.jpg',
+  },
+};
+
+const normalizeRoom = (room) => {
+  if (!room) return room;
+  const canonical = SINCELEJO_ROOMS[String(room.number)];
+  if (!canonical) {
+    return {
+      ...room,
+      imageUrl: room.imageUrl || '/rooms/habitacion-1.jpg',
+    };
+  }
+  const isCustomUrl =
+    room.imageUrl && !room.imageUrl.startsWith('/rooms/') && !room.imageUrl.startsWith('/hotel/');
+  return {
+    ...room,
+    type: canonical.type || room.type,
+    capacity: canonical.capacity || room.capacity,
+    price: canonical.price ?? room.price,
+    services: canonical.services || room.services,
+    imageUrl: isCustomUrl ? room.imageUrl : canonical.imageUrl || room.imageUrl,
+  };
+};
+
+const normalizeRoomsList = (list) => {
+  if (!Array.isArray(list)) return [];
+  return list.filter((r) => SINCELEJO_ROOMS[String(r.number)]).map(normalizeRoom);
+};
+
 function Rooms({ user, notify }) {
   const [rooms, setRooms] = useState([]);
   const [allRooms, setAllRooms] = useState([]);
@@ -968,7 +1063,7 @@ function Rooms({ user, notify }) {
     try {
       const results = await api(`/rooms?${p}`);
       if (version === searchVersion.current) {
-        setRooms(results);
+        setRooms(normalizeRoomsList(results));
         setSearchedDates({ checkIn: criteria.checkIn, checkOut: criteria.checkOut });
       }
     } catch (err) {
@@ -979,7 +1074,9 @@ function Rooms({ user, notify }) {
   }, []);
   useEffect(() => {
     load(initialFilters.current);
-    api('/rooms/all').then(setAllRooms);
+    api('/rooms/all')
+      .then((data) => setAllRooms(normalizeRoomsList(data)))
+      .catch(() => {});
   }, [load]);
 
   return (
@@ -1027,10 +1124,9 @@ function Rooms({ user, notify }) {
             onChange={(e) => setFilters({ ...filters, type: e.target.value })}
           >
             <option value="">Todos</option>
-            <option>Estándar</option>
+            <option>Sencilla</option>
+            <option>Doble</option>
             <option>Familiar</option>
-            <option>Deluxe</option>
-            <option>Suite</option>
           </select>
         </label>
         <label>
@@ -1040,9 +1136,11 @@ function Rooms({ user, notify }) {
             onChange={(e) => setFilters({ ...filters, capacity: e.target.value })}
           >
             <option value="">Todas</option>
+            <option value="1">1+</option>
             <option value="2">2+</option>
             <option value="3">3+</option>
             <option value="4">4+</option>
+            <option value="6">6</option>
           </select>
         </label>
         <label>
@@ -1052,9 +1150,10 @@ function Rooms({ user, notify }) {
             onChange={(e) => setFilters({ ...filters, maxPrice: e.target.value })}
           >
             <option value="">Sin límite</option>
-            <option value="250000">$250.000</option>
-            <option value="350000">$350.000</option>
-            <option value="500000">$500.000</option>
+            <option value="100000">$100.000</option>
+            <option value="200000">$200.000</option>
+            <option value="300000">$300.000</option>
+            <option value="400000">$400.000</option>
           </select>
         </label>
         <label>
@@ -1178,27 +1277,38 @@ function Rooms({ user, notify }) {
 }
 
 function RoomCard({ room, onSelect }) {
-  const typeClass = room.type.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const normalized = normalizeRoom(room);
+  const typeClass = (normalized.type || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const photo = normalized.imageUrl || ROOM_IMAGES[normalized.number] || '/rooms/habitacion-1.jpg';
+
   return (
     <article className="room-card">
       <div className={`room-visual type-${typeClass}`}>
-        <span>{room.type}</span>
-        <BedDouble size={54} />
-        <small>Habitación {room.number}</small>
+        <img
+          src={photo}
+          alt={`Habitación ${normalized.number}`}
+          className="room-card-photo"
+          loading="lazy"
+        />
+        <span className="room-type-tag">{normalized.type}</span>
+        <small className="room-number-tag">Habitación {normalized.number}</small>
       </div>
       <div className="room-body">
         <div>
-          <h3>{room.type}</h3>
+          <h3>{normalized.type}</h3>
           <span className="status available">Disponible</span>
         </div>
         <p>
           <Users size={16} />
-          Hasta {room.capacity} huéspedes
+          Hasta {normalized.capacity} huésped{normalized.capacity > 1 ? 'es' : ''}
         </p>
         <div className="tags">
-          {room.balcony && <span>Balcón</span>}
-          {room.petFriendly && <span>Pet-friendly</span>}
-          {(room.services || '')
+          {normalized.balcony && <span>Balcón</span>}
+          {normalized.petFriendly && <span>Pet-friendly</span>}
+          {(normalized.services || '')
             .split(' · ')
             .filter(Boolean)
             .map((s) => (
@@ -1207,10 +1317,10 @@ function RoomCard({ room, onSelect }) {
         </div>
         <div className="room-foot">
           <span>
-            <strong>{money(room.price)}</strong>
+            <strong>{money(normalized.price)}</strong>
             <small>por noche</small>
           </span>
-          <button className="primary" onClick={() => onSelect(room)}>
+          <button className="primary" onClick={() => onSelect(normalized)}>
             Ver detalles
           </button>
         </div>
@@ -1226,67 +1336,67 @@ const getRoomMapFeatures = (room) => {
 
   // 1. Ubicación arquitectónica y características específicas de la distribución
   if (num === '100') {
-    tags.push({ icon: '🪜', label: 'Junto a las escaleras' });
-    tags.push({ icon: '🏢', label: 'Al lado de la recepción' });
-    tags.push({ icon: '👨‍👩‍👧‍👦', label: 'Familiar · 4 camas' });
-    tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+    tags.push({ icon: Footprints, label: 'Junto a escaleras' });
+    tags.push({ icon: Building, label: 'Al lado de recepción' });
+    tags.push({ icon: Users, label: 'Familiar · 4 camas' });
+    tags.push({ icon: Wind, label: 'Aire acondicionado' });
   } else if (num === '101') {
-    tags.push({ icon: '🪜', label: 'Al otro lado de las escaleras' });
-    tags.push({ icon: '🏢', label: 'Al lado de la recepción' });
-    tags.push({ icon: '🛏️', label: 'Cama doble' });
-    tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+    tags.push({ icon: Footprints, label: 'Al lado de escaleras' });
+    tags.push({ icon: Building, label: 'Al lado de recepción' });
+    tags.push({ icon: BedDouble, label: 'Cama doble' });
+    tags.push({ icon: Wind, label: 'Aire acondicionado' });
   } else if (n >= 102 && n <= 106) {
-    tags.push({ icon: '🪜', label: 'Piso intermedio' });
-    tags.push({ icon: '🛏️', label: 'Cama doble' });
-    tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+    tags.push({ icon: Footprints, label: 'Piso intermedio' });
+    tags.push({ icon: BedDouble, label: 'Cama doble' });
+    tags.push({ icon: Wind, label: 'Aire acondicionado' });
   } else if (n >= 200 && n <= 221) {
     // Piso 2
     if (num === '201' || num === '205') {
-      tags.push({ icon: '🌀', label: 'Con ventilador' });
-      tags.push({ icon: '🛏️', label: 'Cama doble' });
+      tags.push({ icon: Fan, label: 'Ventilador' });
+      tags.push({ icon: BedDouble, label: 'Cama doble' });
     } else {
-      tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+      tags.push({ icon: Wind, label: 'Aire acondicionado' });
       if (['208', '214', '218', '219', '220'].includes(num)) {
-        tags.push({ icon: '🛏️', label: 'Dos camas' });
+        tags.push({ icon: Bed, label: 'Dos camas' });
       } else if (num === '221') {
-        tags.push({ icon: '👨‍👩‍👧‍👦', label: 'Familiar · Tres camas' });
+        tags.push({ icon: Users, label: 'Familiar · 3 camas' });
       } else {
-        tags.push({ icon: '🛏️', label: 'Cama doble' });
+        tags.push({ icon: BedDouble, label: 'Cama doble' });
       }
     }
     if (['200', '201', '208', '214'].includes(num)) {
-      tags.push({ icon: '🪜', label: 'Cerca a escaleras' });
+      tags.push({ icon: Footprints, label: 'Cerca a escaleras' });
     }
   } else if (n >= 300 && n <= 314) {
     // Piso 3: todas con aire
-    tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+    tags.push({ icon: Wind, label: 'Aire acondicionado' });
     if (num === '306') {
-      tags.push({ icon: '👨‍👩‍👧‍👦', label: 'Familiar múltiple · 5 camas' });
+      tags.push({ icon: Users, label: 'Familiar · 5 camas' });
     } else if (num === '314') {
-      tags.push({ icon: '👨‍👩‍👧‍👦', label: 'Familiar múltiple · 3 camas' });
+      tags.push({ icon: Users, label: 'Familiar · 3 camas' });
     } else if (n >= 305) {
-      tags.push({ icon: '🛏️', label: 'Cama doble' });
+      tags.push({ icon: BedDouble, label: 'Cama doble' });
     } else {
-      tags.push({ icon: '🛏️', label: 'Dos camas' });
+      tags.push({ icon: Bed, label: 'Dos camas' });
     }
     if (['300', '301', '307'].includes(num)) {
-      tags.push({ icon: '🪜', label: 'Cerca a escaleras' });
+      tags.push({ icon: Footprints, label: 'Cerca a escaleras' });
     }
   }
 
   // Balcón
   if (room.balcony) {
-    tags.push({ icon: '🌿', label: 'Con balcón privado' });
+    tags.push({ icon: Trees, label: 'Con balcón privado' });
   }
 
   // Vista al mar
   if (room.services && room.services.toLowerCase().includes('vista al mar')) {
-    tags.push({ icon: '🌊', label: 'Vista panorámica al mar' });
+    tags.push({ icon: Waves, label: 'Vista panorámica al mar' });
   }
 
   // Pet friendly
   if (room.petFriendly) {
-    tags.push({ icon: '🐾', label: 'Pet-friendly' });
+    tags.push({ icon: Dog, label: 'Pet-friendly' });
   }
 
   return tags;
@@ -1353,7 +1463,7 @@ function RoomMap({ rooms, allRooms, onSelect }) {
 
   return (
     <div className="hotel-map">
-      <div className="section-head" style={{ marginBottom: 10 }}>
+      <div className="section-head" style={{ marginBottom: 12 }}>
         <div>
           <h4>Plano interactivo del hotel ({source.length} habitaciones)</h4>
           <p className="muted" style={{ fontSize: 13 }}>
@@ -1362,40 +1472,50 @@ function RoomMap({ rooms, allRooms, onSelect }) {
           </p>
         </div>
       </div>
-      <div className="map-legend" style={{ flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
+      <div className="map-legend" style={{ flexWrap: 'wrap', gap: 14, marginBottom: 20 }}>
         <span>
           <i /> Disponible
         </span>
         <span>
           <i className="occupied" /> No disponible
         </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          🪜 Junto a escaleras
+        <span className="legend-chip">
+          <Footprints size={14} /> Escaleras
         </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          🏢 Al lado de recepción
+        <span className="legend-chip">
+          <Building size={14} /> Recepción
         </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>🌿 Con balcón</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>❄️ Con aire</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>🌀 Ventilador</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          🐾 Pet-friendly
+        <span className="legend-chip">
+          <Trees size={14} /> Balcón
+        </span>
+        <span className="legend-chip">
+          <Wind size={14} /> Aire acond.
+        </span>
+        <span className="legend-chip">
+          <Fan size={14} /> Ventilador
+        </span>
+        <span className="legend-chip">
+          <Dog size={14} /> Pet-friendly
         </span>
       </div>
 
       {sections.map((sec) => (
         <div className="floor" key={sec.id}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <strong>{sec.name}</strong>
-              <span className="badge" style={{ fontSize: 11 }}>
-                {sec.badge}
-              </span>
+          <div className="floor-header">
+            <div>
+              <div className="floor-header-title">
+                <h4>{sec.name}</h4>
+                <span className="badge" style={{ fontSize: 11 }}>
+                  {sec.badge}
+                </span>
+              </div>
+              <p className="floor-header-desc">{sec.description}</p>
             </div>
-            <small className="muted" style={{ fontSize: 11 }}>
-              {sec.description}
-            </small>
+            <span className="badge green" style={{ fontSize: 11, alignSelf: 'flex-start' }}>
+              {sec.rooms.length} habitaciones
+            </span>
           </div>
+
           <div className="floor-rooms-grid">
             {sec.rooms.map((room) => {
               const free = availableIds.has(room.id);
@@ -1409,27 +1529,35 @@ function RoomMap({ rooms, allRooms, onSelect }) {
                 >
                   <div className="map-room-header">
                     <div className="map-room-number">
-                      <DoorOpen size={17} />
+                      <DoorOpen size={18} />
                       <strong>Hab. {room.number}</strong>
                     </div>
                     <span className="map-room-type-badge">{room.type}</span>
                   </div>
 
                   <div className="map-room-price">
-                    {free
-                      ? money(room.price)
-                      : room.status === 'AVAILABLE'
-                        ? 'No disponible en fechas'
-                        : label[room.status] || 'No disponible'}
+                    {free ? (
+                      <>
+                        {money(room.price)}
+                        <small>/ noche</small>
+                      </>
+                    ) : room.status === 'AVAILABLE' ? (
+                      'No disponible en fechas'
+                    ) : (
+                      label[room.status] || 'No disponible'
+                    )}
                   </div>
 
                   <div className="map-room-tags">
-                    {features.map((item, idx) => (
-                      <div key={idx} className="map-room-tag">
-                        <span>{item.icon}</span>
-                        <span>{item.label}</span>
-                      </div>
-                    ))}
+                    {features.map((item, idx) => {
+                      const IconComponent = item.icon;
+                      return (
+                        <span key={idx} className="map-room-tag">
+                          <IconComponent size={13} />
+                          <span>{item.label}</span>
+                        </span>
+                      );
+                    })}
                   </div>
                 </button>
               );
@@ -1440,23 +1568,31 @@ function RoomMap({ rooms, allRooms, onSelect }) {
     </div>
   );
 }
-
 function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [booking, setBooking] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+  const [activePhoto, setActivePhoto] = useState('room');
+  const [photoIsPortrait, setPhotoIsPortrait] = useState(false);
   useEffect(() => {
     let active = true;
     setDetail(null);
     setError('');
     setImageFailed(false);
+    setActivePhoto('room');
+    setPhotoIsPortrait(false);
     api(
       `/rooms/${roomId}?${new URLSearchParams({ checkIn: dates.checkIn, checkOut: dates.checkOut })}`
     )
       .then((data) => {
-        if (active) setDetail(data);
+        if (active) {
+          const normRoom = normalizeRoom(data?.room);
+          const nights = data?.nights || 1;
+          const total = normRoom?.price ? normRoom.price * nights : data?.total;
+          setDetail({ ...data, room: normRoom, total });
+        }
       })
       .catch((err) => {
         if (active) setError(err.message);
@@ -1465,7 +1601,21 @@ function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
       active = false;
     };
   }, [roomId, dates.checkIn, dates.checkOut, attempt]);
-  const room = detail?.room;
+  const room = detail?.room ? normalizeRoom(detail.room) : null;
+  const photo =
+    room?.imageUrl || (room ? ROOM_IMAGES[room.number] : null) || '/rooms/habitacion-1.jpg';
+  const socialPhoto =
+    photo === '/hotel/lobby.jpg' || photo === '/hotel/sala.jpg'
+      ? photo === '/hotel/lobby.jpg'
+        ? '/hotel/sala.jpg'
+        : '/hotel/lobby.jpg'
+      : '/hotel/lobby.jpg';
+  const currentPhotoSrc =
+    activePhoto === 'bathroom'
+      ? '/rooms/bano-privado.jpg'
+      : activePhoto === 'social'
+        ? socialPhoto
+        : photo;
   if (booking && room)
     return (
       <ReserveModal
@@ -1509,13 +1659,67 @@ function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
           <p role="status">Cargando detalles y disponibilidad…</p>
         ) : (
           <>
-            {room.imageUrl && !imageFailed ? (
-              <img
-                className="room-photo"
-                src={room.imageUrl}
-                alt={`Habitación ${room.number}, ${room.type}`}
-                onError={() => setImageFailed(true)}
-              />
+            {!imageFailed ? (
+              <div className="room-gallery">
+                <div className={`room-photo-frame ${photoIsPortrait ? 'has-portrait' : ''}`}>
+                  {photoIsPortrait && (
+                    <div
+                      className="room-photo-backdrop"
+                      style={{ backgroundImage: `url(${currentPhotoSrc})` }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <img
+                    className={`room-photo ${photoIsPortrait ? 'is-portrait' : ''}`}
+                    src={currentPhotoSrc}
+                    alt={
+                      activePhoto === 'bathroom'
+                        ? `Baño privado - Habitación ${room.number}`
+                        : activePhoto === 'social'
+                          ? `Zonas sociales - Hotel Lindomar Sincelejo`
+                          : `Habitación ${room.number}, ${room.type}`
+                    }
+                    onLoad={(e) =>
+                      setPhotoIsPortrait(
+                        e.currentTarget.naturalHeight > e.currentTarget.naturalWidth
+                      )
+                    }
+                    onError={() => setImageFailed(true)}
+                  />
+                </div>
+                <div className="room-gallery-tabs" role="group" aria-label="Fotos de la habitación">
+                  <button
+                    type="button"
+                    className={`gallery-pill ${activePhoto === 'room' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActivePhoto('room');
+                      setPhotoIsPortrait(false);
+                    }}
+                  >
+                    Habitación
+                  </button>
+                  <button
+                    type="button"
+                    className={`gallery-pill ${activePhoto === 'bathroom' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActivePhoto('bathroom');
+                      setPhotoIsPortrait(true);
+                    }}
+                  >
+                    Baño privado
+                  </button>
+                  <button
+                    type="button"
+                    className={`gallery-pill ${activePhoto === 'social' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActivePhoto('social');
+                      setPhotoIsPortrait(false);
+                    }}
+                  >
+                    Zonas sociales
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="room-photo-placeholder">
                 <BedDouble size={48} />
@@ -3242,12 +3446,12 @@ function AdminHome({ notify }) {
 const EMPTY_ROOM = {
   number: '',
   floor: 1,
-  type: 'Estándar',
-  capacity: 2,
-  price: 200000,
+  type: 'Sencilla',
+  capacity: 1,
+  price: 80000,
   balcony: false,
   petFriendly: false,
-  services: 'Wi-Fi · TV',
+  services: 'Wi-Fi · Aire acondicionado · TV · Baño privado',
   imageUrl: '',
   status: 'AVAILABLE',
 };
@@ -3470,13 +3674,13 @@ function RoomModal({ room, isNew, onClose, onSave }) {
         <h2>{isNew ? 'Registrar habitación' : `Habitación ${data.number}`}</h2>
         <div className="form-grid">
           <label className="full">
-            Fotografía (URL HTTPS)
+            Fotografía (URL HTTPS o ruta local /rooms/...)
             <input
-              type="url"
+              type="text"
               maxLength={2048}
               value={data.imageUrl || ''}
               onChange={(e) => set('imageUrl', e.target.value)}
-              placeholder="https://…"
+              placeholder="Ej: /rooms/habitacion-1.jpg o https://…"
             />
           </label>
           <label>
@@ -3500,10 +3704,9 @@ function RoomModal({ room, isNew, onClose, onSave }) {
           <label>
             Tipo
             <select value={data.type} onChange={(e) => set('type', e.target.value)}>
-              <option>Estándar</option>
+              <option>Sencilla</option>
+              <option>Doble</option>
               <option>Familiar</option>
-              <option>Deluxe</option>
-              <option>Suite</option>
             </select>
           </label>
           <label>
