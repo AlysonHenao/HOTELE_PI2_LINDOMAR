@@ -230,6 +230,52 @@ public class HotelController {
   public record UserUpdate(
       @Size(min = 1, max = 255) String name, @Size(max = 255) String phone, Role role) {}
 
+  /** Datos para que un usuario actualice su información personal (HU-03). */
+  public record ProfileUpdateRequest(
+      @NotBlank(message = "El nombre es obligatorio")
+          @Size(min = 2, max = 255, message = "El nombre debe tener entre 2 y 255 caracteres")
+          String name,
+      @Size(max = 255, message = "El teléfono no puede superar 255 caracteres") String phone,
+      @Size(max = 72, message = "La contraseña no puede superar 72 caracteres") String password) {
+    /** Normaliza los datos antes de actualizar. */
+    public ProfileUpdateRequest {
+      if (name != null) {
+        name = name.trim();
+      }
+      if (phone != null) {
+        phone = phone.trim();
+      }
+    }
+  }
+
+  /** Datos para que un administrador cree una cuenta de usuario. */
+  public record AdminUserCreateRequest(
+      @NotBlank(message = "El nombre es obligatorio")
+          @Size(min = 2, max = 255, message = "El nombre debe tener entre 2 y 255 caracteres")
+          String name,
+      @NotBlank(message = "El correo es obligatorio")
+          @Email(message = "El formato de correo no es válido")
+          @Size(max = 255, message = "El correo no puede superar 255 caracteres")
+          String email,
+      @Size(max = 255, message = "El teléfono no puede superar 255 caracteres") String phone,
+      @NotNull(message = "El rol es obligatorio") Role role,
+      @NotBlank(message = "La contraseña es obligatoria")
+          @Size(min = 6, max = 72, message = "La contraseña debe tener entre 6 y 72 caracteres")
+          String password) {
+    /** Normaliza los datos antes de persistir. */
+    public AdminUserCreateRequest {
+      if (name != null) {
+        name = name.trim();
+      }
+      if (email != null) {
+        email = email.trim().toLowerCase(Locale.ROOT);
+      }
+      if (phone != null) {
+        phone = phone.trim();
+      }
+    }
+  }
+
   /** Define RoomDetail para la gestión del hotel. */
   public record RoomDetail(
       Room room,
@@ -289,6 +335,34 @@ public class HotelController {
   PublicUser currentUser(
       @RequestHeader(value = "Authorization", required = false) String authorization) {
     return publicUser(requireUser(authorization, null));
+  }
+
+  /** HU-03: Permite al usuario autenticado modificar su información personal permitida. */
+  @Transactional
+  @PutMapping("/auth/profile")
+  PublicUser updateProfile(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @Valid @RequestBody ProfileUpdateRequest data) {
+    var user = requireUser(authorization, null);
+    if (data.name() != null) {
+      if (data.name().isBlank() || data.name().length() < 2) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "El nombre debe tener al menos 2 caracteres");
+      }
+      user.setName(data.name().trim());
+    }
+    if (data.phone() != null) {
+      user.setPhone(data.phone().trim());
+    }
+    if (data.password() != null && !data.password().isBlank()) {
+      if (data.password().length() < 6 || data.password().length() > 72) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "La contraseña debe tener entre 6 y 72 caracteres");
+      }
+      user.setPassword(passwords.encode(data.password()));
+    }
+    var saved = users.save(user);
+    return publicUser(saved);
   }
 
   @Transactional
@@ -358,6 +432,62 @@ public class HotelController {
       @PathVariable Long id,
       @Valid @RequestBody RoleRequest data) {
     return updateUser(authorization, id, new UserUpdate(null, null, data.role()));
+  }
+
+  @Transactional
+  @PostMapping("/users")
+  @ResponseStatus(HttpStatus.CREATED)
+  PublicUser createUser(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @Valid @RequestBody AdminUserCreateRequest data) {
+    requireUser(authorization, Role.ADMIN);
+    if (data.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "La contraseña no puede superar 72 bytes UTF-8");
+    }
+    if (users.findByEmailIgnoreCase(data.email()).isPresent()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Ya existe una cuenta registrada con ese correo");
+    }
+    var u = new UserAccount();
+    u.setName(data.name());
+    u.setEmail(data.email());
+    u.setPhone(data.phone() != null ? data.phone() : "");
+    u.setRole(data.role());
+    u.setPassword(passwords.encode(data.password()));
+    return publicUser(users.save(u));
+  }
+
+  @Transactional
+  @DeleteMapping("/users/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void deleteUser(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id) {
+    var actor = requireUser(authorization, Role.ADMIN);
+    if (actor.getId().equals(id)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "No puedes eliminar tu propia cuenta");
+    }
+    var u =
+        users
+            .findById(id)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
+    if (u.getRole() == Role.ADMIN && users.findByRoleOrderByIdAsc(Role.ADMIN).size() <= 1) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Debe permanecer al menos un administrador");
+    }
+    if (!reservations.findByGuestIdOrderByCheckInDesc(id).isEmpty()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "El usuario tiene reservas asociadas; no es posible eliminarlo");
+    }
+    if (tasks.countByEmployeeIdAndStatusNot(id, TaskStatus.DONE) > 0) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "El empleado tiene tareas pendientes; reasígnalas antes de eliminarlo");
+    }
+    sessions.deleteByUserId(id);
+    users.delete(u);
   }
 
   @GetMapping("/roles")
@@ -512,6 +642,7 @@ public class HotelController {
 
   @Transactional
   @DeleteMapping("/rooms/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
   void deleteRoom(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
@@ -522,6 +653,10 @@ public class HotelController {
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+    if (room.getStatus() == RoomStatus.OCCUPIED) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "No se puede eliminar una habitación que actualmente está ocupada");
+    }
     if (reservations.existsByRoomId(id)) {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT,
@@ -851,6 +986,10 @@ public class HotelController {
     }
   }
 
+  /**
+   * HU-21: Permite al administrador modificar fechas, habitación, huéspedes y estado de una
+   * reserva.
+   */
   @Transactional
   @PutMapping("/reservations/{id}")
   ReservationView updateReservation(
@@ -868,19 +1007,64 @@ public class HotelController {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT, "Una reserva cancelada o finalizada no puede modificarse");
     }
+
+    Long previousRoomId = r.getRoomId();
+    Long targetRoomId = data.getRoomId() != null ? data.getRoomId() : r.getRoomId();
     var room =
         rooms
-            .findByIdForUpdate(r.getRoomId())
+            .findByIdForUpdate(targetRoomId)
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
-    // HU-10 usa PATCH y su política propia; este flujo administrativo solo cambia estado y notas.
-    if ((data.getCheckIn() != null && !data.getCheckIn().equals(r.getCheckIn()))
-        || (data.getCheckOut() != null && !data.getCheckOut().equals(r.getCheckOut()))) {
-      throw new ResponseStatusException(
-          HttpStatus.CONFLICT,
-          "Este flujo solo permite actualizar el estado y las observaciones de la reserva");
+
+    LocalDate newCheckIn = data.getCheckIn() != null ? data.getCheckIn() : r.getCheckIn();
+    LocalDate newCheckOut = data.getCheckOut() != null ? data.getCheckOut() : r.getCheckOut();
+
+    boolean stayChanged =
+        !newCheckIn.equals(r.getCheckIn())
+            || !newCheckOut.equals(r.getCheckOut())
+            || !targetRoomId.equals(r.getRoomId());
+
+    if (stayChanged) {
+      validateSearchDates(newCheckIn, newCheckOut);
+      if (r.getStatus() == ReservationStatus.CONFIRMED
+          && newCheckIn.isBefore(LocalDate.now(clock))) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "La fecha de llegada no puede ser anterior a hoy");
+      }
+      boolean conflict =
+          reservations.existsByRoomIdAndIdNotAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(
+              targetRoomId, id, ReservationStatus.CANCELLED, newCheckOut, newCheckIn);
+      if (conflict) {
+        throw new ResponseStatusException(
+            HttpStatus.CONFLICT, "La habitación no está disponible para las fechas seleccionadas");
+      }
+      r.setRoomId(targetRoomId);
+      r.setCheckIn(newCheckIn);
+      r.setCheckOut(newCheckOut);
+      long nights = java.time.temporal.ChronoUnit.DAYS.between(newCheckIn, newCheckOut);
+      BigDecimal newAmount = room.getPrice().multiply(BigDecimal.valueOf(nights));
+      BigDecimal diff = newAmount.subtract(r.getAmount());
+      r.setAmount(newAmount);
+      if (diff.signum() != 0) {
+        finance.save(
+            new FinanceEntry(
+                diff.signum() > 0 ? EntryType.INCOME : EntryType.EXPENSE,
+                "Ajuste administrativo reserva #" + id + " · Habitación " + room.getNumber(),
+                diff.abs(),
+                LocalDate.now(clock)));
+      }
     }
+
+    if (data.getGuests() > 0) {
+      if (data.getGuests() > room.getCapacity()) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST,
+            "La capacidad de la habitación es de máximo " + room.getCapacity() + " personas");
+      }
+      r.setGuests(data.getGuests());
+    }
+
     if (data.getStatus() != null && data.getStatus() != r.getStatus()) {
       if (data.getStatus() == ReservationStatus.CHECKED_IN) {
         if (r.getStatus() != ReservationStatus.CONFIRMED

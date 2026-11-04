@@ -7,6 +7,7 @@ import {
   BellRing,
   CalendarClock,
   CalendarDays,
+  AlertCircle,
   CheckCircle2,
   CircleDollarSign,
   Camera,
@@ -32,6 +33,7 @@ import {
   Trash2,
   TrendingDown,
   TrendingUp,
+  User,
   UserPlus,
   Users,
   WalletCards,
@@ -433,12 +435,14 @@ const navByRole = {
     ['rooms', 'Habitaciones', BedDouble],
     ['reservations', 'Mis reservas', CalendarDays],
     ['requests', 'Atención', ConciergeBell],
+    ['profile', 'Mi perfil', User],
     ['assistant', 'Asistente', MessageCircle],
   ],
   EMPLOYEE: [
     ['tasks', 'Mis tareas', ClipboardCheck],
     ['task-notifications', 'Avisos de tareas', Bell],
     ['staff-requests', 'Solicitudes', ConciergeBell],
+    ['profile', 'Mi perfil', User],
   ],
   ADMIN: [
     ['admin-home', 'Resumen', LayoutDashboard],
@@ -448,10 +452,11 @@ const navByRole = {
     ['admin-users', 'Equipo y usuarios', Users],
     ['admin-tasks', 'Tareas', ClipboardCheck],
     ['finance', 'Finanzas', CircleDollarSign],
+    ['profile', 'Mi perfil', User],
   ],
 };
 
-function Shell({ user, onLogout, theme, toggleTheme }) {
+function Shell({ user, onLogout, theme, toggleTheme, onUserUpdate }) {
   const [page, setPage] = useState(navByRole[user.role][0][0]);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -533,13 +538,25 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
             </button>
           ))}
         </nav>
-        <div className="sidebar-foot">
+        <div
+          className="sidebar-foot"
+          onClick={() => setPage('profile')}
+          style={{ cursor: 'pointer' }}
+          title="Ir a mi perfil"
+        >
           <div className="avatar">{initials(user.name)}</div>
           <div>
             <strong>{user.name}</strong>
             <small>{label[user.role]}</small>
           </div>
-          <button title="Cerrar sesión" onClick={onLogout} aria-label="Cerrar sesión">
+          <button
+            title="Cerrar sesión"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLogout();
+            }}
+            aria-label="Cerrar sesión"
+          >
             <LogOut size={18} />
           </button>
         </div>
@@ -566,12 +583,25 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
             >
               {theme === 'light' ? <Moon /> : <Sun />}
             </button>
-            <div className="avatar">{user.name[0]}</div>
+            <div
+              className="avatar"
+              onClick={() => setPage('profile')}
+              style={{ cursor: 'pointer' }}
+              title={`Ir a mi perfil (${user.name})`}
+            >
+              {initials(user.name)}
+            </div>
           </div>
         </header>
         <div className="content">
           {user.role === 'GUEST' ? (
-            <Guest page={page} user={user} notify={notify} go={setPage} />
+            <Guest
+              page={page}
+              user={user}
+              notify={notify}
+              go={setPage}
+              onUserUpdate={onUserUpdate}
+            />
           ) : page === 'task-notifications' && user.role === 'EMPLOYEE' ? (
             <TaskNotifications
               items={taskNotices}
@@ -580,9 +610,21 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
               goToTasks={() => setPage('tasks')}
             />
           ) : user.role === 'EMPLOYEE' ? (
-            <Employee page={page} user={user} notify={notify} onChange={refreshBadge} />
+            <Employee
+              page={page}
+              user={user}
+              notify={notify}
+              onChange={refreshBadge}
+              onUserUpdate={onUserUpdate}
+            />
           ) : user.role === 'ADMIN' ? (
-            <Admin page={page} user={user} notify={notify} onChange={refreshBadge} />
+            <Admin
+              page={page}
+              user={user}
+              notify={notify}
+              onChange={refreshBadge}
+              onUserUpdate={onUserUpdate}
+            />
           ) : (
             <p role="alert">Tu cuenta no tiene un rol válido.</p>
           )}
@@ -594,12 +636,172 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
 }
 
 /* ============ HUÉSPED ============ */
-function Guest({ page, user, notify, go }) {
+function Guest({ page, user, notify, go, onUserUpdate }) {
   if (page === 'home') return <GuestHome user={user} go={go} />;
   if (page === 'rooms') return <Rooms user={user} notify={notify} />;
   if (page === 'reservations') return <Reservations user={user} notify={notify} />;
   if (page === 'requests') return <Requests user={user} notify={notify} />;
+  if (page === 'profile')
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <Assistant />;
+}
+
+function UserProfile({ user, notify, onUserUpdate }) {
+  const [data, setData] = useState({
+    name: user.name || '',
+    email: user.email || '',
+    phone: user.phone || '',
+    password: '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const set = (k, v) => {
+    setData((d) => ({ ...d, [k]: v }));
+    setSavedSuccess(false);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    setSavedSuccess(false);
+    try {
+      const payload = {
+        name: data.name,
+        phone: data.phone,
+      };
+      if (data.password && data.password.trim()) {
+        payload.password = data.password.trim();
+      }
+      const updated = await api('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      notify('Información personal actualizada con éxito');
+      setSavedSuccess(true);
+      if (onUserUpdate) onUserUpdate(updated);
+      setData((d) => ({ ...d, password: '' }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="profile-container" style={{ maxWidth: '640px', margin: '0 auto' }}>
+      <div className="section-head">
+        <div>
+          <h3>Mi perfil</h3>
+          <p className="muted">Consulta y actualiza tu información de contacto personal.</p>
+        </div>
+      </div>
+
+      {savedSuccess && (
+        <div
+          className="form-success"
+          style={{
+            background: 'var(--leaf-50, #e8f5e9)',
+            color: 'var(--leaf-700, #2e7d32)',
+            padding: '12px 16px',
+            borderRadius: 'var(--r-md)',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <CheckCircle2 size={18} />
+          <span>Tu información ha sido actualizada exitosamente en el sistema.</span>
+        </div>
+      )}
+
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="panel" style={{ padding: '24px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            marginBottom: '24px',
+            paddingBottom: '20px',
+            borderBottom: '1px solid var(--line)',
+          }}
+        >
+          <div className="avatar large" style={{ width: '56px', height: '56px', fontSize: '18px' }}>
+            {initials(user.name)}
+          </div>
+          <div>
+            <h3 style={{ margin: '0 0 4px' }}>{user.name}</h3>
+            <span className={`role-badge ${user.role?.toLowerCase()}`}>
+              {label[user.role] || user.role}
+            </span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '16px' }}>
+          <label>
+            Nombre completo
+            <input
+              required
+              minLength={2}
+              value={data.name}
+              onChange={(e) => set('name', e.target.value)}
+              placeholder="Tu nombre completo"
+            />
+          </label>
+
+          <label>
+            Correo electrónico
+            <input
+              type="email"
+              value={data.email}
+              disabled
+              style={{ opacity: 0.8, cursor: 'not-allowed' }}
+            />
+            <small className="muted">
+              El correo electrónico es tu identificador de acceso y no puede modificarse.
+            </small>
+          </label>
+
+          <label>
+            Teléfono de contacto
+            <input
+              type="tel"
+              value={data.phone}
+              onChange={(e) => set('phone', e.target.value)}
+              placeholder="Ej. 3001234567"
+            />
+          </label>
+
+          <label>
+            Cambiar contraseña (opcional)
+            <input
+              type="password"
+              minLength={6}
+              value={data.password}
+              onChange={(e) => set('password', e.target.value)}
+              placeholder="Dejar en blanco para mantener la contraseña actual"
+            />
+            <small className="muted">Mínimo 6 caracteres si decides cambiarla.</small>
+          </label>
+
+          <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? 'Guardando cambios...' : 'Guardar información'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
 function GuestHome({ user, go }) {
@@ -619,10 +821,16 @@ function GuestHome({ user, go }) {
             Tu habitación, tus planes y tu ritmo. Desde aquí controlas todo lo que hace especial tu
             estadía en Sincelejo.
           </p>
-          <button className="primary" onClick={() => go('rooms')}>
-            <Search size={18} />
-            Explorar habitaciones
-          </button>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
+            <button className="primary" onClick={() => go('rooms')}>
+              <Search size={18} />
+              Explorar habitaciones
+            </button>
+            <button className="secondary" onClick={() => go('profile')}>
+              <User size={18} />
+              Mi perfil
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1532,9 +1740,25 @@ function ReservationChangeModal({ reservation, onClose, onSaved }) {
           </label>
         </fieldset>
         {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
+          <div
+            className="form-error"
+            role="alert"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '12px 16px',
+              borderRadius: 'var(--r-md)',
+              background: '#fef2f2',
+              color: '#b91c1c',
+              border: '1px solid #fecaca',
+              margin: '8px 0 16px',
+              fontWeight: 500,
+            }}
+          >
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <span>{error}</span>
+          </div>
         )}
         {quote && (
           <div className="price-summary reservation-change-summary" role="status">
@@ -1814,8 +2038,10 @@ function Assistant() {
 }
 
 /* ============ EMPLEADO ============ */
-function Employee({ page, user, notify, onChange }) {
+function Employee({ page, user, notify, onChange, onUserUpdate }) {
   if (page === 'staff-requests') return <ServiceRequests notify={notify} onChange={onChange} />;
+  if (page === 'profile')
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <EmployeeTasks user={user} notify={notify} />;
 }
 
@@ -2229,13 +2455,16 @@ function Metric({ icon: Icon, label: lab, value, help }) {
   );
 }
 
-function Admin({ page, user, notify, onChange }) {
+function Admin({ page, user, notify, onChange, onUserUpdate }) {
   if (page === 'admin-home') return <AdminHome notify={notify} />;
   if (page === 'admin-rooms') return <AdminRooms notify={notify} />;
   if (page === 'admin-reservations') return <AdminReservations notify={notify} />;
   if (page === 'admin-requests') return <ServiceRequests notify={notify} onChange={onChange} />;
   if (page === 'admin-users') return <AdminUsers currentUser={user} notify={notify} />;
   if (page === 'admin-tasks') return <AdminTasks notify={notify} />;
+  if (page === 'finance') return <Finance notify={notify} />;
+  if (page === 'profile')
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <Finance notify={notify} />;
 }
 
@@ -2353,22 +2582,47 @@ function AdminHome({ notify }) {
               {d.suggestedCleaners === 1 ? 'persona de aseo' : 'personas de aseo'}
             </h3>
             <p>
-              {(d.cleaningRationale || '')
-                .replace(/\s*\(ratio:[^)]*\)/gi, '')
-                .replace(/Para una ocupación del/gi, 'Con el hotel al')
-                .replace(/Para una ocupación/gi, 'Con el hotel al')
-                .replace(/con 0 salida\(s\) de habitación,/gi, 'y sin salidas de habitaciones hoy,')
-                .replace(/al del/gi, 'al')
-                .replace(
-                  /se recomiendan 1 persona\(s\) de aseo/gi,
+              {(() => {
+                let text = d.cleaningRationale || '';
+                text = text.replace(/\s*\(ratio:[^)]*\)/gi, '');
+                text = text.replace(/Para una ocupación del/gi, 'Con el hotel al');
+                text = text.replace(/Para una ocupación/gi, 'Con el hotel al');
+                text = text.replace(
+                  /con 0 salida\(s\) de habitación,?/gi,
+                  'y sin salidas de habitaciones hoy,'
+                );
+                text = text.replace(
+                  /con 0 salidas de habitación,?/gi,
+                  'y sin salidas de habitaciones hoy,'
+                );
+                text = text.replace(
+                  /con 1 salida\(s\) de habitación,?/gi,
+                  'y 1 habitación por entregar hoy,'
+                );
+                text = text.replace(
+                  /con (\d+) salida\(s\) de habitación,?/gi,
+                  'y $1 habitaciones por entregar hoy,'
+                );
+                text = text.replace(/al del/gi, 'al');
+                text = text.replace(/1 persona\(s\) de aseo/gi, '1 persona de aseo');
+                text = text.replace(/(\d+) persona\(s\) de aseo/gi, '$1 personas de aseo');
+                text = text.replace(
+                  /se recomiendan 1 persona de aseo/gi,
                   'se sugiere programar 1 persona de aseo'
-                )
-                .replace(/se recomiendan/gi, 'se sugiere programar')
-                .replace(
-                  /persona\(s\) de aseo/gi,
-                  d.suggestedCleaners === 1 ? 'persona de aseo' : 'personas de aseo'
-                )
-                .trim() || 'Calculado según la ocupación y la temporada.'}
+                );
+                text = text.replace(
+                  /se recomiendan (\d+) personas de aseo/gi,
+                  'se sugiere programar $1 personas de aseo'
+                );
+                text = text.replace(/se recomiendan/gi, 'se sugiere programar');
+                if (!text.trim() || text.includes('ratio')) {
+                  const cleaners = d.suggestedCleaners || 1;
+                  const cText =
+                    cleaners === 1 ? '1 persona de aseo' : `${cleaners} personas de aseo`;
+                  text = `Con el hotel al ${d.occupancyRate || 0}% de ocupación y sin salidas hoy, se sugiere programar ${cText} para atender la limpieza.`;
+                }
+                return text.trim();
+              })()}
             </p>
           </div>
         </div>
@@ -2770,7 +3024,15 @@ function AdminReservations({ notify }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [modifying, setModifying] = useState(null);
+  const [allRooms, setAllRooms] = useState([]);
   const [filters, setFilters] = useState({ query: '', status: 'ALL', from: '', to: '' });
+
+  useEffect(() => {
+    api('/rooms/all')
+      .then(setAllRooms)
+      .catch(() => {});
+  }, []);
   const load = () =>
     api('/reservations')
       .then(setItems)
@@ -2806,6 +3068,22 @@ function AdminReservations({ notify }) {
       setBusy(null);
     }
   };
+  const saveModification = async (formData) => {
+    await api(`/reservations/${formData.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        roomId: formData.roomId,
+        checkIn: formData.checkIn,
+        checkOut: formData.checkOut,
+        guests: formData.guests,
+        notes: formData.notes,
+      }),
+    });
+    notify(`Reserva #${formData.id} modificada con éxito`);
+    setModifying(null);
+    await load();
+  };
+
   const filtered = useMemo(
     () =>
       items.filter((r) => {
@@ -2897,6 +3175,7 @@ function AdminReservations({ notify }) {
               <th>Fechas</th>
               <th>Total</th>
               <th>Estado</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -2943,6 +3222,18 @@ function AdminReservations({ notify }) {
                     <small>{r.cancellationReason}</small>
                   )}
                 </td>
+                <td>
+                  {!['CANCELLED', 'COMPLETED'].includes(r.status) && (
+                    <button
+                      className="icon-button"
+                      title="Modificar reserva"
+                      disabled={busy !== null}
+                      onClick={() => setModifying({ ...r })}
+                    >
+                      <Settings2 />
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -2954,7 +3245,185 @@ function AdminReservations({ notify }) {
           </div>
         )}
       </div>
+
+      {modifying && (
+        <AdminModifyReservationModal
+          reservation={modifying}
+          rooms={allRooms}
+          onClose={() => setModifying(null)}
+          onSave={saveModification}
+          notify={notify}
+        />
+      )}
     </>
+  );
+}
+
+function AdminModifyReservationModal({ reservation, rooms, onClose, onSave, notify }) {
+  const formRef = useRef(null);
+  const [data, setData] = useState({
+    id: reservation.id,
+    roomId: reservation.roomId,
+    checkIn: reservation.checkIn,
+    checkOut: reservation.checkOut,
+    guests: reservation.guests || 1,
+    notes: reservation.notes || '',
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const selectedRoom = rooms.find((rm) => rm.id === Number(data.roomId));
+
+  const nights = useMemo(() => {
+    if (!data.checkIn || !data.checkOut) return 0;
+    const inDate = new Date(data.checkIn);
+    const outDate = new Date(data.checkOut);
+    const diff = Math.round((outDate - inDate) / (1000 * 60 * 60 * 24));
+    return diff > 0 ? diff : 0;
+  }, [data.checkIn, data.checkOut]);
+
+  const estimatedTotal = (selectedRoom?.price || 0) * nights;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await onSave(data);
+    } catch (err) {
+      setError(err.message);
+      if (notify) {
+        notify(`Atención: ${err.message}`);
+      }
+      if (formRef.current) {
+        formRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const renderAlert = () =>
+    error ? (
+      <div
+        className="form-error"
+        role="alert"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '12px 14px',
+          borderRadius: 'var(--r-md)',
+          background: '#fef2f2',
+          color: '#b91c1c',
+          border: '1px solid #fecaca',
+          margin: '10px 0',
+          fontWeight: 500,
+        }}
+      >
+        <AlertCircle size={18} style={{ flexShrink: 0 }} />
+        <span>{error}</span>
+      </div>
+    ) : null;
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form ref={formRef} className="modal" onSubmit={handleSubmit}>
+        <div className="modal-header">
+          <h3>Modificar reserva #{String(reservation.id).padStart(4, '0')}</h3>
+          <button type="button" className="icon-button" onClick={onClose}>
+            <X />
+          </button>
+        </div>
+        {renderAlert()}
+        <label>
+          Huésped
+          <input value={reservation.guestName} disabled style={{ opacity: 0.8 }} />
+        </label>
+        <label>
+          Habitación asignada
+          <select
+            value={data.roomId}
+            onChange={(e) => setData({ ...data, roomId: Number(e.target.value) })}
+          >
+            {rooms.map((rm) => (
+              <option key={rm.id} value={rm.id}>
+                Habitación {rm.number} · {rm.type} ({rm.capacity} personas) — {money(rm.price)}
+                /noche
+              </option>
+            ))}
+          </select>
+        </label>
+        <div
+          className="field-group"
+          style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}
+        >
+          <label>
+            Llegada (Check-in)
+            <input
+              type="date"
+              required
+              value={data.checkIn}
+              onChange={(e) => setData({ ...data, checkIn: e.target.value })}
+            />
+          </label>
+          <label>
+            Salida (Check-out)
+            <input
+              type="date"
+              required
+              value={data.checkOut}
+              onChange={(e) => setData({ ...data, checkOut: e.target.value })}
+            />
+          </label>
+        </div>
+        <label>
+          Huéspedes
+          <input
+            type="number"
+            min={1}
+            max={selectedRoom?.capacity || 4}
+            required
+            value={data.guests}
+            onChange={(e) => setData({ ...data, guests: Number(e.target.value) })}
+          />
+          <small className="muted">
+            Máximo {selectedRoom?.capacity || 4} personas para esta habitación.
+          </small>
+        </label>
+        <label>
+          Observaciones / Notas
+          <textarea
+            value={data.notes}
+            maxLength={255}
+            rows={2}
+            onChange={(e) => setData({ ...data, notes: e.target.value })}
+            placeholder="Peticiones especiales o notas operativas"
+          />
+        </label>
+        <div
+          style={{
+            background: 'var(--bg-sunken)',
+            padding: '12px',
+            borderRadius: 'var(--r-md)',
+            fontSize: '13px',
+          }}
+        >
+          <span>
+            Total recalculado: <strong>{money(estimatedTotal)}</strong> ({nights} noches)
+          </span>
+        </div>
+        {renderAlert()}
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Guardando...' : 'Confirmar cambios'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -2963,16 +3432,24 @@ function AdminUsers({ currentUser, notify }) {
   const [roles, setRoles] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 8;
-  useEffect(() => {
+
+  const load = () => {
     Promise.all([api('/users'), api('/roles')])
       .then(([list, permissions]) => {
         setUsers(list);
         setRoles(permissions);
       })
       .catch((err) => setError(err.message));
+  };
+
+  useEffect(() => {
+    load();
   }, []);
+
   const changeRole = async (user, role) => {
     if (
       !confirm(
@@ -2989,6 +3466,41 @@ function AdminUsers({ currentUser, notify }) {
       });
       setUsers((list) => list.map((u) => (u.id === updated.id ? updated : u)));
       notify(`Rol de ${updated.name} actualizado a ${label[updated.role]}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveUser = async (data) => {
+    const updated = await api(`/users/${data.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: data.name, phone: data.phone, role: data.role }),
+    });
+    setUsers((list) => list.map((u) => (u.id === updated.id ? updated : u)));
+    setEditing(null);
+    notify(`Usuario ${updated.name} actualizado`);
+  };
+
+  const createUser = async (data) => {
+    const created = await api('/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    setUsers((list) => [created, ...list]);
+    setCreating(false);
+    notify(`Usuario ${created.name} creado con éxito`);
+  };
+
+  const removeUser = async (u) => {
+    if (!confirm(`¿Eliminar la cuenta de ${u.name}? Esta acción no se puede deshacer.`)) return;
+    setBusy(u.id);
+    setError('');
+    try {
+      await api(`/users/${u.id}`, { method: 'DELETE' });
+      setUsers((list) => list.filter((item) => item.id !== u.id));
+      notify(`Usuario ${u.name} eliminado`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -3038,6 +3550,10 @@ function AdminUsers({ currentUser, notify }) {
           <h3>Usuarios registrados</h3>
           <p className="muted">Cuentas con acceso a la plataforma y asignación de roles.</p>
         </div>
+        <button className="primary" onClick={() => setCreating(true)}>
+          <Plus size={17} />
+          Nuevo usuario
+        </button>
       </div>
 
       <div className="table-wrap">
@@ -3047,7 +3563,8 @@ function AdminUsers({ currentUser, notify }) {
               <th>Usuario</th>
               <th>Contacto</th>
               <th>Rol asignado</th>
-              <th>Asignar rol</th>
+              <th>Cambio rápido</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -3094,6 +3611,25 @@ function AdminUsers({ currentUser, notify }) {
                       )}
                     </div>
                   </td>
+                  <td>
+                    <div className="request-actions">
+                      <button
+                        className="icon-button"
+                        title="Editar usuario"
+                        onClick={() => setEditing({ ...u })}
+                      >
+                        <Settings2 />
+                      </button>
+                      <button
+                        className="icon-button danger"
+                        title="Eliminar usuario"
+                        disabled={isCurrent || busy !== null}
+                        onClick={() => removeUser(u)}
+                      >
+                        <Trash2 />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -3129,7 +3665,126 @@ function AdminUsers({ currentUser, notify }) {
           </div>
         )}
       </div>
+
+      {(editing || creating) && (
+        <UserModal
+          user={editing || { name: '', email: '', phone: '', role: 'EMPLOYEE', password: '' }}
+          isNew={creating}
+          currentUser={currentUser}
+          onClose={() => {
+            setEditing(null);
+            setCreating(false);
+          }}
+          onSave={creating ? createUser : saveUser}
+        />
+      )}
     </>
+  );
+}
+
+function UserModal({ user, isNew, onClose, onSave, currentUser }) {
+  const [data, setData] = useState(user);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setData((d) => ({ ...d, [k]: v }));
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form
+        className="modal"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError('');
+          setBusy(true);
+          try {
+            await onSave(data);
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="modal-header">
+          <h3>{isNew ? 'Registrar nuevo usuario' : `Editar usuario: ${user.name}`}</h3>
+          <button type="button" className="icon-button" onClick={onClose}>
+            <X />
+          </button>
+        </div>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <label>
+          Nombre completo
+          <input
+            required
+            minLength={2}
+            value={data.name || ''}
+            onChange={(e) => set('name', e.target.value)}
+            placeholder="Ej. Carmen Restrepo"
+          />
+        </label>
+        <label>
+          Correo electrónico
+          <input
+            type="email"
+            required
+            disabled={!isNew}
+            value={data.email || ''}
+            onChange={(e) => set('email', e.target.value)}
+            placeholder="usuario@lindomar.co"
+          />
+          {!isNew && <small>El correo no se puede modificar.</small>}
+        </label>
+        <label>
+          Teléfono
+          <input
+            type="tel"
+            value={data.phone || ''}
+            onChange={(e) => set('phone', e.target.value)}
+            placeholder="3001234567"
+          />
+        </label>
+        <label>
+          Rol en la plataforma
+          <select
+            value={data.role || 'EMPLOYEE'}
+            disabled={!isNew && user?.id === currentUser?.id}
+            onChange={(e) => set('role', e.target.value)}
+          >
+            <option value="GUEST">Huésped</option>
+            <option value="EMPLOYEE">Empleado</option>
+            <option value="ADMIN">Administrador</option>
+          </select>
+          {!isNew && user?.id === currentUser?.id && (
+            <small>No puedes cambiar tu propio rol desde aquí.</small>
+          )}
+        </label>
+        {isNew && (
+          <label>
+            Contraseña inicial
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={data.password || ''}
+              onChange={(e) => set('password', e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+            />
+          </label>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Guardando...' : isNew ? 'Crear usuario' : 'Guardar cambios'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -3876,6 +4531,7 @@ function App() {
             onLogout={logout}
             theme={theme}
             toggleTheme={toggleTheme}
+            onUserUpdate={(updated) => setUser((prev) => ({ ...prev, ...updated }))}
           />
         ) : (
           <p role="alert">
