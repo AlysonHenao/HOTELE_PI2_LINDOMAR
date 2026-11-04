@@ -1261,15 +1261,18 @@ public class HotelController {
     int recommended =
         totalRooms == 0 ? 0 : Math.max(1, (int) Math.ceil((double) effectiveRooms / ratio));
 
+    String checkoutsText =
+        checkoutsOnDate == 0
+            ? "sin salidas hoy"
+            : (checkoutsOnDate == 1 ? "1 entrega pendiente" : checkoutsOnDate + " entregas");
     String rationale =
         String.format(
             Locale.ROOT,
-            "Con el hotel al %d%% de ocupación en %s y %d salida(s) para hoy, "
-                + "se sugiere programar %d persona(s) de aseo para atender "
-                + "cómodamente la limpieza.",
+            "Con el hotel al %d%% de ocupación (%s) y %s, "
+                + "te sugerimos contar con %d persona(s) de aseo para tener todo listo a tiempo.",
             occupancyRate,
             seasonDescription,
-            checkoutsOnDate,
+            checkoutsText,
             recommended);
 
     return new StaffRecommendation(
