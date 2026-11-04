@@ -471,7 +471,7 @@ public final class Domain {
     private String roomNumber;
     private String category;
 
-    @Column(length = 1200)
+    @Column(length = 4000)
     private String notes;
 
     @Enumerated(EnumType.STRING)

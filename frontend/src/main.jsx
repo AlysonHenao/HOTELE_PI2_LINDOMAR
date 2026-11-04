@@ -1188,7 +1188,46 @@ function RoomCard({ room, onSelect }) {
   );
 }
 
-/** Mapa tipo cine: construido a partir de las habitaciones reales del hotel. */
+const getRoomMapFeatures = (room) => {
+  const num = String(room.number);
+  const tags = [];
+
+  // Proximidad a escaleras y circulación
+  if (num.endsWith('1')) {
+    tags.push({ icon: '🪜', label: 'Al lado de escaleras y ascensor' });
+  } else if (num.endsWith('2')) {
+    tags.push({ icon: '🕊️', label: 'Zona central muy silenciosa' });
+  } else if (num.endsWith('3')) {
+    tags.push({ icon: '🚪', label: 'Final de pasillo (mayor privacidad)' });
+  } else {
+    tags.push({ icon: '📍', label: 'Pasillo oriente' });
+  }
+
+  // Balcón
+  if (room.balcony) {
+    tags.push({ icon: '🌿', label: 'Con balcón exterior privado' });
+  } else {
+    tags.push({ icon: '🪟', label: 'Ventanal con luz natural' });
+  }
+
+  // Vistas y accesibilidad por nivel
+  if (room.services && room.services.toLowerCase().includes('vista al mar')) {
+    tags.push({ icon: '🌊', label: 'Vista panorámica al mar' });
+  } else if (room.floor === 1) {
+    tags.push({ icon: '🌴', label: 'Planta baja (acceso directo a piscina y recepción)' });
+  } else if (room.floor === 3) {
+    tags.push({ icon: '🌅', label: 'Piso superior despejado' });
+  }
+
+  // Mascotas
+  if (room.petFriendly) {
+    tags.push({ icon: '🐾', label: 'Habitación pet-friendly' });
+  }
+
+  return tags;
+};
+
+/** Mapa tipo cine interactivo: enriquecido con balcones, escaleras y puntos de interés. */
 function RoomMap({ rooms, allRooms, onSelect }) {
   const source = allRooms.length ? allRooms : rooms;
   const floors = [...new Set(source.map((r) => r.floor))].sort((a, b) => b - a);
@@ -1196,41 +1235,80 @@ function RoomMap({ rooms, allRooms, onSelect }) {
 
   return (
     <div className="hotel-map">
-      <div className="map-legend">
+      <div className="section-head" style={{ marginBottom: 10 }}>
+        <div>
+          <h4>Plano interactivo del hotel</h4>
+          <p className="muted" style={{ fontSize: 13 }}>
+            Elige tu habitación evaluando su ubicación física: cercanía a escaleras, balcones,
+            vistas y nivel de privacidad.
+          </p>
+        </div>
+      </div>
+      <div className="map-legend" style={{ flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
         <span>
-          <i />
-          Disponible
+          <i /> Disponible
         </span>
         <span>
-          <i className="occupied" />
-          No disponible
+          <i className="occupied" /> No disponible
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          🪜 Al lado de escaleras
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>🌿 Con balcón</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          🌊 Vista al mar
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          🐾 Pet-friendly
         </span>
       </div>
+
       {floors.map((f) => (
         <div className="floor" key={f}>
-          <strong>Piso {f}</strong>
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <strong>Piso {f}</strong>
+            <small className="muted" style={{ fontSize: 11 }}>
+              {f === 1 ? 'Nivel Jardín' : f === 2 ? 'Nivel Medio' : 'Piso Superior'}
+            </small>
+          </div>
+          <div className="floor-rooms-grid">
             {source
               .filter((r) => r.floor === f)
               .sort((a, b) => a.number.localeCompare(b.number))
               .map((room) => {
                 const free = availableIds.has(room.id);
+                const features = getRoomMapFeatures(room);
                 return (
                   <button
                     key={room.id}
-                    className={free ? 'available' : 'occupied'}
+                    className={`map-room-card ${free ? 'available' : 'occupied'}`}
                     disabled={!free}
                     onClick={() => free && onSelect(room)}
                   >
-                    <DoorOpen />
-                    <span>{room.number}</span>
-                    <small>
+                    <div className="map-room-header">
+                      <div className="map-room-number">
+                        <DoorOpen size={17} />
+                        <strong>Hab. {room.number}</strong>
+                      </div>
+                      <span className="map-room-type-badge">{room.type}</span>
+                    </div>
+
+                    <div className="map-room-price">
                       {free
                         ? money(room.price)
                         : room.status === 'AVAILABLE'
-                          ? 'No disponible en estas fechas'
+                          ? 'No disponible en fechas'
                           : label[room.status] || 'No disponible'}
-                    </small>
+                    </div>
+
+                    <div className="map-room-tags">
+                      {features.map((item, idx) => (
+                        <div key={idx} className="map-room-tag">
+                          <span>{item.icon}</span>
+                          <span>{item.label}</span>
+                        </div>
+                      ))}
+                    </div>
                   </button>
                 );
               })}
@@ -4426,6 +4504,8 @@ function FinancialReportModal({ entries, onClose }) {
     return localDate(d);
   });
   const [toDate, setToDate] = useState(() => today());
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 6;
 
   const filtered = useMemo(() => {
     return entries.filter((e) => {
@@ -4435,6 +4515,13 @@ function FinancialReportModal({ entries, onClose }) {
       return true;
     });
   }, [entries, fromDate, toDate]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [fromDate, toDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginatedEntries = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const totalIncome = filtered
     .filter((e) => e.type === 'INCOME')
@@ -4470,7 +4557,15 @@ function FinancialReportModal({ entries, onClose }) {
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ width: 'min(760px, 100%)' }}>
+      <div
+        className="modal"
+        style={{
+          width: 'min(920px, 95vw)',
+          maxWidth: '920px',
+          boxSizing: 'border-box',
+          overflowX: 'hidden',
+        }}
+      >
         <button type="button" className="modal-close" onClick={onClose}>
           <X />
         </button>
@@ -4508,25 +4603,52 @@ function FinancialReportModal({ entries, onClose }) {
           </button>
         </div>
 
-        <div className="metric-grid three" style={{ marginBottom: 24 }}>
-          <Metric
-            icon={TrendingUp}
-            label="Ingresos período"
-            value={money(totalIncome)}
-            help={`${filtered.filter((e) => e.type === 'INCOME').length} movimientos`}
-          />
-          <Metric
-            icon={TrendingDown}
-            label="Gastos período"
-            value={money(totalExpense)}
-            help={`${filtered.filter((e) => e.type === 'EXPENSE').length} movimientos`}
-          />
-          <Metric
-            icon={WalletCards}
-            label="Balance neto"
-            value={money(netBalance)}
-            help={netBalance >= 0 ? 'Superávit' : 'Déficit'}
-          />
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: 14,
+            marginBottom: 24,
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div className="metric" style={{ margin: 0, minWidth: 0, boxSizing: 'border-box' }}>
+            <span>
+              <TrendingUp />
+            </span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <small>Ingresos período</small>
+              <strong style={{ fontSize: 'clamp(18px, 2vw, 22px)', wordBreak: 'break-word' }}>
+                {money(totalIncome)}
+              </strong>
+              <em>{filtered.filter((e) => e.type === 'INCOME').length} movimientos</em>
+            </div>
+          </div>
+          <div className="metric" style={{ margin: 0, minWidth: 0, boxSizing: 'border-box' }}>
+            <span>
+              <TrendingDown />
+            </span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <small>Gastos período</small>
+              <strong style={{ fontSize: 'clamp(18px, 2vw, 22px)', wordBreak: 'break-word' }}>
+                {money(totalExpense)}
+              </strong>
+              <em>{filtered.filter((e) => e.type === 'EXPENSE').length} movimientos</em>
+            </div>
+          </div>
+          <div className="metric" style={{ margin: 0, minWidth: 0, boxSizing: 'border-box' }}>
+            <span>
+              <WalletCards />
+            </span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <small>Balance neto</small>
+              <strong style={{ fontSize: 'clamp(18px, 2vw, 22px)', wordBreak: 'break-word' }}>
+                {money(netBalance)}
+              </strong>
+              <em>{netBalance >= 0 ? 'Superávit' : 'Déficit'}</em>
+            </div>
+          </div>
         </div>
 
         <div className="section-head">
@@ -4551,8 +4673,6 @@ function FinancialReportModal({ entries, onClose }) {
         <div
           className="table-responsive"
           style={{
-            maxHeight: 260,
-            overflowY: 'auto',
             border: '1px solid var(--line)',
             borderRadius: 'var(--r-md)',
             marginTop: 8,
@@ -4568,7 +4688,7 @@ function FinancialReportModal({ entries, onClose }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((e) => (
+              {paginatedEntries.map((e) => (
                 <tr key={e.id}>
                   <td>{e.date}</td>
                   <td>
@@ -4596,6 +4716,46 @@ function FinancialReportModal({ entries, onClose }) {
             </tbody>
           </table>
         </div>
+
+        {filtered.length > PAGE_SIZE && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginTop: 14,
+              fontSize: 13,
+            }}
+          >
+            <span className="muted">
+              Mostrando {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}{' '}
+              de {filtered.length} movimientos
+            </span>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                style={{ padding: '5px 12px', fontSize: 12 }}
+              >
+                Anterior
+              </button>
+              <span style={{ fontWeight: 600, padding: '0 8px' }}>
+                {page} / {totalPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                style={{ padding: '5px 12px', fontSize: 12 }}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4609,7 +4769,19 @@ function Finance({ notify }) {
   const [showReport, setShowReport] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [entryPage, setEntryPage] = useState(1);
+  const ENTRY_PAGE_SIZE = 8;
   const saveLock = useRef(false);
+
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => b.date.localeCompare(a.date)),
+    [entries]
+  );
+  const totalEntryPages = Math.max(1, Math.ceil(sortedEntries.length / ENTRY_PAGE_SIZE));
+  const currentEntries = sortedEntries.slice(
+    (entryPage - 1) * ENTRY_PAGE_SIZE,
+    entryPage * ENTRY_PAGE_SIZE
+  );
   const [form, setForm] = useState({ type: 'INCOME', concept: '', amount: '', date: today() });
   const [reminderForm, setReminderForm] = useState({
     concept: '',
@@ -4809,25 +4981,71 @@ function Finance({ notify }) {
             </tr>
           </thead>
           <tbody>
-            {[...entries]
-              .sort((a, b) => b.date.localeCompare(a.date))
-              .map((e) => (
-                <tr key={e.id}>
-                  <td>{fmtDate(e.date)}</td>
-                  <td>
-                    <strong>{e.concept}</strong>
-                  </td>
-                  <td>
-                    <span className={`status ${e.type.toLowerCase()}`}>{label[e.type]}</span>
-                  </td>
-                  <td className={e.type === 'INCOME' ? 'positive' : 'negative'}>
-                    {e.type === 'INCOME' ? '+' : '−'} {money(e.amount)}
-                  </td>
-                </tr>
-              ))}
+            {currentEntries.map((e) => (
+              <tr key={e.id}>
+                <td>{fmtDate(e.date)}</td>
+                <td>
+                  <strong>{e.concept}</strong>
+                </td>
+                <td>
+                  <span className={`status ${e.type.toLowerCase()}`}>{label[e.type]}</span>
+                </td>
+                <td className={e.type === 'INCOME' ? 'positive' : 'negative'}>
+                  {e.type === 'INCOME' ? '+' : '−'} {money(e.amount)}
+                </td>
+              </tr>
+            ))}
+            {!entries.length && (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>
+                  No hay movimientos registrados.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {sortedEntries.length > ENTRY_PAGE_SIZE && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: 14,
+            fontSize: 13,
+          }}
+        >
+          <span className="muted">
+            Mostrando {(entryPage - 1) * ENTRY_PAGE_SIZE + 1}–
+            {Math.min(entryPage * ENTRY_PAGE_SIZE, sortedEntries.length)} de {sortedEntries.length}{' '}
+            movimientos
+          </span>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={entryPage <= 1}
+              onClick={() => setEntryPage((p) => Math.max(1, p - 1))}
+              style={{ padding: '5px 12px', fontSize: 12 }}
+            >
+              Anterior
+            </button>
+            <span style={{ fontWeight: 600, padding: '0 8px' }}>
+              {entryPage} / {totalEntryPages}
+            </span>
+            <button
+              type="button"
+              className="secondary"
+              disabled={entryPage >= totalEntryPages}
+              onClick={() => setEntryPage((p) => Math.min(totalEntryPages, p + 1))}
+              style={{ padding: '5px 12px', fontSize: 12 }}
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
 
       {show && (
         <div

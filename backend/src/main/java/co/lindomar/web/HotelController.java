@@ -1354,10 +1354,12 @@ public class HotelController {
     var actor = requireUser(authorization, null);
     var r =
         requests
-            .findByIdForUpdate(id)
+            .findById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
-    if (actor.getRole() == Role.GUEST && !Objects.equals(actor.getId(), r.getGuestId())) {
+    if (actor.getRole() == Role.GUEST
+        && r.getGuestId() != null
+        && !Objects.equals(actor.getId(), r.getGuestId())) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solicitud de otro huésped");
     }
     String timeStamp =

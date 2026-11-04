@@ -1469,10 +1469,102 @@ select {
   color: var(--muted);
   letter-spacing: 0.04em;
 }
-.floor > div {
+.floor > div,
+.floor-rooms-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 14px;
+}
+
+.map-room-card {
+  border: 1px solid var(--ocean-200);
+  background: var(--ocean-50);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  color: var(--ocean-900);
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 8px;
+  transition: all 0.18s var(--ease);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.map-room-card:not(.occupied):hover {
+  background: var(--ocean-500);
+  border-color: var(--ocean-500);
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.map-room-card:not(.occupied):hover .map-room-tag {
+  color: #fff;
+  opacity: 0.95;
+}
+
+.map-room-card:not(.occupied):hover .map-room-price {
+  color: #fff;
+}
+
+.map-room-card:not(.occupied):hover .map-room-type-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.map-room-card.occupied {
+  background: var(--bg-sunken);
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.map-room-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.map-room-number {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.map-room-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: var(--ocean-100);
+  color: var(--ocean-800);
+}
+
+.map-room-price {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ocean-700);
+}
+
+.map-room-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.map-room-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--ink-soft);
 }
 
 .floor button {
