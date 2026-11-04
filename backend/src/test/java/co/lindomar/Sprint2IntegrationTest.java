@@ -303,7 +303,9 @@ class Sprint2IntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"CANCELLED\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("CANCELLED"));
+        .andExpect(jsonPath("$.status").value("CANCELLED"))
+        .andExpect(jsonPath("$.cancelledAt").exists())
+        .andExpect(jsonPath("$.cancelledByRole").value("ADMIN"));
     assertThat(refunds(r.getId())).isEqualTo(1);
     mvc.perform(
             put("/api/reservations/{id}", r.getId())
