@@ -230,6 +230,24 @@ public class HotelController {
   public record UserUpdate(
       @Size(min = 1, max = 255) String name, @Size(max = 255) String phone, Role role) {}
 
+  /** Datos para que un usuario actualice su información personal (HU-03). */
+  public record ProfileUpdateRequest(
+      @NotBlank(message = "El nombre es obligatorio")
+          @Size(min = 2, max = 255, message = "El nombre debe tener entre 2 y 255 caracteres")
+          String name,
+      @Size(max = 255, message = "El teléfono no puede superar 255 caracteres") String phone,
+      @Size(max = 72, message = "La contraseña no puede superar 72 caracteres") String password) {
+    /** Normaliza los datos antes de actualizar. */
+    public ProfileUpdateRequest {
+      if (name != null) {
+        name = name.trim();
+      }
+      if (phone != null) {
+        phone = phone.trim();
+      }
+    }
+  }
+
   /** Datos para que un administrador cree una cuenta de usuario. */
   public record AdminUserCreateRequest(
       @NotBlank(message = "El nombre es obligatorio")
@@ -940,6 +958,10 @@ public class HotelController {
     }
   }
 
+  /**
+   * HU-21: Permite al administrador modificar fechas, habitación, huéspedes y estado de una
+   * reserva.
+   */
   @Transactional
   @PutMapping("/reservations/{id}")
   ReservationView updateReservation(
@@ -957,19 +979,63 @@ public class HotelController {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT, "Una reserva cancelada o finalizada no puede modificarse");
     }
+
+    Long targetRoomId = data.getRoomId() != null ? data.getRoomId() : r.getRoomId();
     var room =
         rooms
-            .findByIdForUpdate(r.getRoomId())
+            .findByIdForUpdate(targetRoomId)
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
-    // HU-10 usa PATCH y su política propia; este flujo administrativo solo cambia estado y notas.
-    if ((data.getCheckIn() != null && !data.getCheckIn().equals(r.getCheckIn()))
-        || (data.getCheckOut() != null && !data.getCheckOut().equals(r.getCheckOut()))) {
-      throw new ResponseStatusException(
-          HttpStatus.CONFLICT,
-          "Este flujo solo permite actualizar el estado y las observaciones de la reserva");
+
+    LocalDate newCheckIn = data.getCheckIn() != null ? data.getCheckIn() : r.getCheckIn();
+    LocalDate newCheckOut = data.getCheckOut() != null ? data.getCheckOut() : r.getCheckOut();
+
+    boolean stayChanged =
+        !newCheckIn.equals(r.getCheckIn())
+            || !newCheckOut.equals(r.getCheckOut())
+            || !targetRoomId.equals(r.getRoomId());
+
+    if (stayChanged) {
+      validateSearchDates(newCheckIn, newCheckOut);
+      if (r.getStatus() == ReservationStatus.CONFIRMED
+          && newCheckIn.isBefore(LocalDate.now(clock))) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "La fecha de llegada no puede ser anterior a hoy");
+      }
+      boolean conflict =
+          reservations.existsByRoomIdAndIdNotAndStatusNotAndCheckInLessThanAndCheckOutGreaterThan(
+              targetRoomId, id, ReservationStatus.CANCELLED, newCheckOut, newCheckIn);
+      if (conflict) {
+        throw new ResponseStatusException(
+            HttpStatus.CONFLICT, "La habitación no está disponible para las fechas seleccionadas");
+      }
+      r.setRoomId(targetRoomId);
+      r.setCheckIn(newCheckIn);
+      r.setCheckOut(newCheckOut);
+      long nights = java.time.temporal.ChronoUnit.DAYS.between(newCheckIn, newCheckOut);
+      BigDecimal newAmount = room.getPrice().multiply(BigDecimal.valueOf(nights));
+      BigDecimal diff = newAmount.subtract(r.getAmount());
+      r.setAmount(newAmount);
+      if (diff.signum() != 0) {
+        finance.save(
+            new FinanceEntry(
+                diff.signum() > 0 ? EntryType.INCOME : EntryType.EXPENSE,
+                "Ajuste administrativo reserva #" + id + " · Habitación " + room.getNumber(),
+                diff.abs(),
+                LocalDate.now(clock)));
+      }
     }
+
+    if (data.getGuests() > 0) {
+      if (data.getGuests() > room.getCapacity()) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST,
+            "La capacidad de la habitación es de máximo " + room.getCapacity() + " personas");
+      }
+      r.setGuests(data.getGuests());
+    }
+
     if (data.getStatus() != null && data.getStatus() != r.getStatus()) {
       if (data.getStatus() == ReservationStatus.CHECKED_IN) {
         if (r.getStatus() != ReservationStatus.CONFIRMED
@@ -1675,19 +1741,22 @@ public class HotelController {
     int recommended =
         totalRooms == 0 ? 0 : Math.max(1, (int) Math.ceil((double) effectiveRooms / ratio));
 
+    String personText = recommended == 1 ? "1 persona de aseo" : recommended + " personas de aseo";
     String checkoutsText =
         checkoutsOnDate == 0
-            ? "sin salidas hoy"
-            : (checkoutsOnDate == 1 ? "1 entrega pendiente" : checkoutsOnDate + " entregas");
+            ? "sin salidas de habitaciones hoy"
+            : (checkoutsOnDate == 1
+                ? "1 habitación por entregar hoy"
+                : checkoutsOnDate + " habitaciones por entregar hoy");
     String rationale =
         String.format(
             Locale.ROOT,
-            "Con el hotel al %d%% de ocupación (%s) y %s, "
-                + "te sugerimos contar con %d persona(s) de aseo para tener todo listo a tiempo.",
+            "Con el hotel al %d%% de ocupación en %s y %s, "
+                + "se sugiere programar %s para atender cómodamente la limpieza.",
             occupancyRate,
             seasonDescription,
             checkoutsText,
-            recommended);
+            personText);
 
     return new StaffRecommendation(
         targetDate,

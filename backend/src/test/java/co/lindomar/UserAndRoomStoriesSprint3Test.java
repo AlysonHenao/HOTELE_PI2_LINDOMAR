@@ -2,6 +2,7 @@ package co.lindomar;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -379,5 +380,178 @@ class UserAndRoomStoriesSprint3Test {
 
     mvc.perform(delete("/api/users/{id}", 1L).header("Authorization", auth("employee@lindomar.co")))
         .andExpect(status().isForbidden());
+  }
+
+  // ==========================================
+  // HU-21: Modify Guest Reservation (Admin)
+  // ==========================================
+
+  @Test
+  void adminCanModifyReservationRoomDatesAndGuests() throws Exception {
+    var room1 = createRoom("701", RoomStatus.AVAILABLE);
+    var room2 = createRoom("702", RoomStatus.AVAILABLE);
+    var guest = users.findByEmailIgnoreCase("guest@lindomar.co").orElseThrow();
+
+    var res = new Reservation();
+    res.setRoomId(room1.getId());
+    res.setGuestId(guest.getId());
+    res.setCheckIn(LocalDate.of(2030, 10, 20));
+    res.setCheckOut(LocalDate.of(2030, 10, 22));
+    res.setGuests(1);
+    res.setStatus(ReservationStatus.CONFIRMED);
+    res.setAmount(new BigDecimal("360000"));
+    res = reservations.save(res);
+
+    var modification = new Reservation();
+    modification.setRoomId(room2.getId());
+    modification.setCheckIn(LocalDate.of(2030, 10, 21));
+    modification.setCheckOut(LocalDate.of(2030, 10, 24));
+    modification.setGuests(2);
+    modification.setNotes("Cambio por solicitud de habitación con vista");
+
+    mvc.perform(
+            put("/api/reservations/{id}", res.getId())
+                .header("Authorization", auth("admin@lindomar.co"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(modification)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.roomId").value(room2.getId()))
+        .andExpect(jsonPath("$.checkIn").value("2030-10-21"))
+        .andExpect(jsonPath("$.checkOut").value("2030-10-24"))
+        .andExpect(jsonPath("$.guests").value(2))
+        .andExpect(jsonPath("$.notes").value("Cambio por solicitud de habitación con vista"));
+
+    var updated = reservations.findById(res.getId()).orElseThrow();
+    assertThat(updated.getRoomId()).isEqualTo(room2.getId());
+    assertThat(updated.getCheckIn()).isEqualTo(LocalDate.of(2030, 10, 21));
+    assertThat(updated.getCheckOut()).isEqualTo(LocalDate.of(2030, 10, 24));
+    assertThat(updated.getGuests()).isEqualTo(2);
+    // 3 noches * 180.000 = 540.000
+    assertThat(updated.getAmount()).isEqualByComparingTo("540000");
+  }
+
+  @Test
+  void adminModifyReservationRejectsOccupiedRoomConflict() throws Exception {
+    var room = createRoom("703", RoomStatus.AVAILABLE);
+    var guest = users.findByEmailIgnoreCase("guest@lindomar.co").orElseThrow();
+
+    // Reserva 1 existente: 20 a 25 oct
+    var existing = new Reservation();
+    existing.setRoomId(room.getId());
+    existing.setGuestId(guest.getId());
+    existing.setCheckIn(LocalDate.of(2030, 10, 20));
+    existing.setCheckOut(LocalDate.of(2030, 10, 25));
+    existing.setGuests(2);
+    existing.setStatus(ReservationStatus.CONFIRMED);
+    existing.setAmount(new BigDecimal("900000"));
+    reservations.save(existing);
+
+    // Reserva 2 en otra fecha: 27 a 29 oct
+    var target = new Reservation();
+    target.setRoomId(createRoom("704", RoomStatus.AVAILABLE).getId());
+    target.setGuestId(guest.getId());
+    target.setCheckIn(LocalDate.of(2030, 10, 27));
+    target.setCheckOut(LocalDate.of(2030, 10, 29));
+    target.setGuests(1);
+    target.setStatus(ReservationStatus.CONFIRMED);
+    target.setAmount(new BigDecimal("360000"));
+    target = reservations.save(target);
+
+    // Intentar mover target a room en fecha que colisiona (22 a 26)
+    var change = new Reservation();
+    change.setRoomId(room.getId());
+    change.setCheckIn(LocalDate.of(2030, 10, 22));
+    change.setCheckOut(LocalDate.of(2030, 10, 26));
+
+    mvc.perform(
+            put("/api/reservations/{id}", target.getId())
+                .header("Authorization", auth("admin@lindomar.co"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(change)))
+        .andExpect(status().isConflict());
+  }
+
+  // ==========================================
+  // HU-03: Manage Personal Information (Guest)
+  // ==========================================
+
+  @Test
+  void guestCanViewOwnProfile() throws Exception {
+    mvc.perform(get("/api/auth/me").header("Authorization", auth("guest@lindomar.co")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.email").value("guest@lindomar.co"))
+        .andExpect(jsonPath("$.role").value("GUEST"))
+        .andExpect(jsonPath("$.name").isString());
+  }
+
+  @Test
+  void guestCanUpdateAllowedPersonalFields() throws Exception {
+    var update =
+        Map.of(
+            "name", "Laura Huesped Actualizada",
+            "phone", "3209876543");
+
+    mvc.perform(
+            put("/api/auth/profile")
+                .header("Authorization", auth("guest@lindomar.co"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(update)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("Laura Huesped Actualizada"))
+        .andExpect(jsonPath("$.phone").value("3209876543"))
+        .andExpect(jsonPath("$.email").value("guest@lindomar.co"))
+        .andExpect(jsonPath("$.role").value("GUEST"));
+
+    var guest = users.findByEmailIgnoreCase("guest@lindomar.co").orElseThrow();
+    assertThat(guest.getName()).isEqualTo("Laura Huesped Actualizada");
+    assertThat(guest.getPhone()).isEqualTo("3209876543");
+  }
+
+  @Test
+  void guestCanUpdatePasswordAndLoginWithNewOne() throws Exception {
+    var update =
+        Map.of(
+            "name", "Usuario Con Nueva Clave",
+            "password", "nuevaClaveSuperSegura123");
+
+    mvc.perform(
+            put("/api/auth/profile")
+                .header("Authorization", auth("guest@lindomar.co"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(update)))
+        .andExpect(status().isOk());
+
+    // Iniciar sesión con la nueva contraseña
+    mvc.perform(
+            post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    json.writeValueAsString(
+                        Map.of(
+                            "email", "guest@lindomar.co",
+                            "password", "nuevaClaveSuperSegura123"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.user.name").value("Usuario Con Nueva Clave"));
+  }
+
+  @Test
+  void guestUpdateProfileValidatesInput() throws Exception {
+    var invalidName = Map.of("name", "");
+
+    mvc.perform(
+            put("/api/auth/profile")
+                .header("Authorization", auth("guest@lindomar.co"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(invalidName)))
+        .andExpect(status().isBadRequest());
+
+    var shortPassword = Map.of("name", "Nombre Valido", "password", "123");
+
+    mvc.perform(
+            put("/api/auth/profile")
+                .header("Authorization", auth("guest@lindomar.co"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(shortPassword)))
+        .andExpect(status().isBadRequest());
   }
 }

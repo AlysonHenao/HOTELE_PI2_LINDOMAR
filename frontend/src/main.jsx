@@ -451,7 +451,7 @@ const navByRole = {
   ],
 };
 
-function Shell({ user, onLogout, theme, toggleTheme }) {
+function Shell({ user, onLogout, theme, toggleTheme, onUserUpdate }) {
   const [page, setPage] = useState(navByRole[user.role][0][0]);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -571,7 +571,13 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
         </header>
         <div className="content">
           {user.role === 'GUEST' ? (
-            <Guest page={page} user={user} notify={notify} go={setPage} />
+            <Guest
+              page={page}
+              user={user}
+              notify={notify}
+              go={setPage}
+              onUserUpdate={onUserUpdate}
+            />
           ) : page === 'task-notifications' && user.role === 'EMPLOYEE' ? (
             <TaskNotifications
               items={taskNotices}
@@ -594,12 +600,170 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
 }
 
 /* ============ HUÉSPED ============ */
-function Guest({ page, user, notify, go }) {
+function Guest({ page, user, notify, go, onUserUpdate }) {
   if (page === 'home') return <GuestHome user={user} go={go} />;
   if (page === 'rooms') return <Rooms user={user} notify={notify} />;
   if (page === 'reservations') return <Reservations user={user} notify={notify} />;
   if (page === 'requests') return <Requests user={user} notify={notify} />;
+  if (page === 'profile')
+    return <GuestProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <Assistant />;
+}
+
+function GuestProfile({ user, notify, onUserUpdate }) {
+  const [data, setData] = useState({
+    name: user.name || '',
+    email: user.email || '',
+    phone: user.phone || '',
+    password: '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const set = (k, v) => {
+    setData((d) => ({ ...d, [k]: v }));
+    setSavedSuccess(false);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    setSavedSuccess(false);
+    try {
+      const payload = {
+        name: data.name,
+        phone: data.phone,
+      };
+      if (data.password && data.password.trim()) {
+        payload.password = data.password.trim();
+      }
+      const updated = await api('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      notify('Información personal actualizada con éxito');
+      setSavedSuccess(true);
+      if (onUserUpdate) onUserUpdate(updated);
+      setData((d) => ({ ...d, password: '' }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="profile-container" style={{ maxWidth: '640px', margin: '0 auto' }}>
+      <div className="section-head">
+        <div>
+          <h3>Mi perfil</h3>
+          <p className="muted">Consulta y actualiza tu información de contacto personal.</p>
+        </div>
+      </div>
+
+      {savedSuccess && (
+        <div
+          className="form-success"
+          style={{
+            background: 'var(--leaf-50, #e8f5e9)',
+            color: 'var(--leaf-700, #2e7d32)',
+            padding: '12px 16px',
+            borderRadius: 'var(--r-md)',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <CheckCircle2 size={18} />
+          <span>Tu información ha sido actualizada exitosamente en el sistema.</span>
+        </div>
+      )}
+
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="panel" style={{ padding: '24px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            marginBottom: '24px',
+            paddingBottom: '20px',
+            borderBottom: '1px solid var(--line)',
+          }}
+        >
+          <div className="avatar large" style={{ width: '56px', height: '56px', fontSize: '18px' }}>
+            {initials(user.name)}
+          </div>
+          <div>
+            <h3 style={{ margin: '0 0 4px' }}>{user.name}</h3>
+            <span className="role-badge guest">{label[user.role] || 'Huésped'}</span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '16px' }}>
+          <label>
+            Nombre completo
+            <input
+              required
+              minLength={2}
+              value={data.name}
+              onChange={(e) => set('name', e.target.value)}
+              placeholder="Tu nombre completo"
+            />
+          </label>
+
+          <label>
+            Correo electrónico
+            <input
+              type="email"
+              value={data.email}
+              disabled
+              style={{ opacity: 0.8, cursor: 'not-allowed' }}
+            />
+            <small className="muted">
+              El correo electrónico es tu identificador de acceso y no puede modificarse.
+            </small>
+          </label>
+
+          <label>
+            Teléfono de contacto
+            <input
+              type="tel"
+              value={data.phone}
+              onChange={(e) => set('phone', e.target.value)}
+              placeholder="Ej. 3001234567"
+            />
+          </label>
+
+          <label>
+            Cambiar contraseña (opcional)
+            <input
+              type="password"
+              minLength={6}
+              value={data.password}
+              onChange={(e) => set('password', e.target.value)}
+              placeholder="Dejar en blanco para mantener la contraseña actual"
+            />
+            <small className="muted">Mínimo 6 caracteres si decides cambiarla.</small>
+          </label>
+
+          <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? 'Guardando cambios...' : 'Guardar información'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
 function GuestHome({ user, go }) {
@@ -2757,7 +2921,15 @@ function AdminReservations({ notify }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [modifying, setModifying] = useState(null);
+  const [allRooms, setAllRooms] = useState([]);
   const [filters, setFilters] = useState({ query: '', status: 'ALL', from: '', to: '' });
+
+  useEffect(() => {
+    api('/rooms/all')
+      .then(setAllRooms)
+      .catch(() => {});
+  }, []);
   const load = () =>
     api('/reservations')
       .then(setItems)
@@ -2793,6 +2965,27 @@ function AdminReservations({ notify }) {
       setBusy(null);
     }
   };
+  const saveModification = async (formData) => {
+    setError('');
+    try {
+      await api(`/reservations/${formData.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          roomId: formData.roomId,
+          checkIn: formData.checkIn,
+          checkOut: formData.checkOut,
+          guests: formData.guests,
+          notes: formData.notes,
+        }),
+      });
+      notify(`Reserva #${formData.id} modificada con éxito`);
+      setModifying(null);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const filtered = useMemo(
     () =>
       items.filter((r) => {
@@ -2884,6 +3077,7 @@ function AdminReservations({ notify }) {
               <th>Fechas</th>
               <th>Total</th>
               <th>Estado</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -2930,6 +3124,18 @@ function AdminReservations({ notify }) {
                     <small>{r.cancellationReason}</small>
                   )}
                 </td>
+                <td>
+                  {!['CANCELLED', 'COMPLETED'].includes(r.status) && (
+                    <button
+                      className="icon-button"
+                      title="Modificar reserva"
+                      disabled={busy !== null}
+                      onClick={() => setModifying({ ...r })}
+                    >
+                      <Settings2 />
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -2941,7 +3147,157 @@ function AdminReservations({ notify }) {
           </div>
         )}
       </div>
+
+      {modifying && (
+        <AdminModifyReservationModal
+          reservation={modifying}
+          rooms={allRooms}
+          onClose={() => setModifying(null)}
+          onSave={saveModification}
+        />
+      )}
     </>
+  );
+}
+
+function AdminModifyReservationModal({ reservation, rooms, onClose, onSave }) {
+  const [data, setData] = useState({
+    id: reservation.id,
+    roomId: reservation.roomId,
+    checkIn: reservation.checkIn,
+    checkOut: reservation.checkOut,
+    guests: reservation.guests || 1,
+    notes: reservation.notes || '',
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const selectedRoom = rooms.find((rm) => rm.id === Number(data.roomId));
+
+  const nights = useMemo(() => {
+    if (!data.checkIn || !data.checkOut) return 0;
+    const inDate = new Date(data.checkIn);
+    const outDate = new Date(data.checkOut);
+    const diff = Math.round((outDate - inDate) / (1000 * 60 * 60 * 24));
+    return diff > 0 ? diff : 0;
+  }, [data.checkIn, data.checkOut]);
+
+  const estimatedTotal = (selectedRoom?.price || 0) * nights;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await onSave(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form className="modal" onSubmit={handleSubmit}>
+        <div className="modal-header">
+          <h3>Modificar reserva #{String(reservation.id).padStart(4, '0')}</h3>
+          <button type="button" className="icon-button" onClick={onClose}>
+            <X />
+          </button>
+        </div>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <label>
+          Huésped
+          <input value={reservation.guestName} disabled style={{ opacity: 0.8 }} />
+        </label>
+        <label>
+          Habitación asignada
+          <select
+            value={data.roomId}
+            onChange={(e) => setData({ ...data, roomId: Number(e.target.value) })}
+          >
+            {rooms.map((rm) => (
+              <option key={rm.id} value={rm.id}>
+                Habitación {rm.number} · {rm.type} ({rm.capacity} personas) — {money(rm.price)}
+                /noche
+              </option>
+            ))}
+          </select>
+        </label>
+        <div
+          className="field-group"
+          style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}
+        >
+          <label>
+            Llegada (Check-in)
+            <input
+              type="date"
+              required
+              value={data.checkIn}
+              onChange={(e) => setData({ ...data, checkIn: e.target.value })}
+            />
+          </label>
+          <label>
+            Salida (Check-out)
+            <input
+              type="date"
+              required
+              value={data.checkOut}
+              onChange={(e) => setData({ ...data, checkOut: e.target.value })}
+            />
+          </label>
+        </div>
+        <label>
+          Huéspedes
+          <input
+            type="number"
+            min={1}
+            max={selectedRoom?.capacity || 4}
+            required
+            value={data.guests}
+            onChange={(e) => setData({ ...data, guests: Number(e.target.value) })}
+          />
+          <small className="muted">
+            Máximo {selectedRoom?.capacity || 4} personas para esta habitación.
+          </small>
+        </label>
+        <label>
+          Observaciones / Notas
+          <textarea
+            value={data.notes}
+            maxLength={255}
+            rows={2}
+            onChange={(e) => setData({ ...data, notes: e.target.value })}
+            placeholder="Peticiones especiales o notas operativas"
+          />
+        </label>
+        <div
+          style={{
+            background: 'var(--bg-sunken)',
+            padding: '12px',
+            borderRadius: 'var(--r-md)',
+            fontSize: '13px',
+          }}
+        >
+          <span>
+            Total recalculado: <strong>{money(estimatedTotal)}</strong> ({nights} noches)
+          </span>
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Guardando...' : 'Confirmar cambios'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
