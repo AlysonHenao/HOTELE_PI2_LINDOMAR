@@ -209,6 +209,34 @@ public class HotelController {
   public record UserUpdate(
       @Size(min = 1, max = 255) String name, @Size(max = 255) String phone, Role role) {}
 
+  /** Datos para que un administrador cree una cuenta de usuario. */
+  public record AdminUserCreateRequest(
+      @NotBlank(message = "El nombre es obligatorio")
+          @Size(min = 2, max = 255, message = "El nombre debe tener entre 2 y 255 caracteres")
+          String name,
+      @NotBlank(message = "El correo es obligatorio")
+          @Email(message = "El formato de correo no es válido")
+          @Size(max = 255, message = "El correo no puede superar 255 caracteres")
+          String email,
+      @Size(max = 255, message = "El teléfono no puede superar 255 caracteres") String phone,
+      @NotNull(message = "El rol es obligatorio") Role role,
+      @NotBlank(message = "La contraseña es obligatoria")
+          @Size(min = 6, max = 72, message = "La contraseña debe tener entre 6 y 72 caracteres")
+          String password) {
+    /** Normaliza los datos antes de persistir. */
+    public AdminUserCreateRequest {
+      if (name != null) {
+        name = name.trim();
+      }
+      if (email != null) {
+        email = email.trim().toLowerCase(Locale.ROOT);
+      }
+      if (phone != null) {
+        phone = phone.trim();
+      }
+    }
+  }
+
   /** Define RoomDetail para la gestión del hotel. */
   public record RoomDetail(
       Room room,
@@ -337,6 +365,62 @@ public class HotelController {
       @PathVariable Long id,
       @Valid @RequestBody RoleRequest data) {
     return updateUser(authorization, id, new UserUpdate(null, null, data.role()));
+  }
+
+  @Transactional
+  @PostMapping("/users")
+  @ResponseStatus(HttpStatus.CREATED)
+  PublicUser createUser(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @Valid @RequestBody AdminUserCreateRequest data) {
+    requireUser(authorization, Role.ADMIN);
+    if (data.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "La contraseña no puede superar 72 bytes UTF-8");
+    }
+    if (users.findByEmailIgnoreCase(data.email()).isPresent()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Ya existe una cuenta registrada con ese correo");
+    }
+    var u = new UserAccount();
+    u.setName(data.name());
+    u.setEmail(data.email());
+    u.setPhone(data.phone() != null ? data.phone() : "");
+    u.setRole(data.role());
+    u.setPassword(passwords.encode(data.password()));
+    return publicUser(users.save(u));
+  }
+
+  @Transactional
+  @DeleteMapping("/users/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void deleteUser(
+      @RequestHeader(value = "Authorization", required = false) String authorization,
+      @PathVariable Long id) {
+    var actor = requireUser(authorization, Role.ADMIN);
+    if (actor.getId().equals(id)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "No puedes eliminar tu propia cuenta");
+    }
+    var u =
+        users
+            .findById(id)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
+    if (u.getRole() == Role.ADMIN && users.findByRoleOrderByIdAsc(Role.ADMIN).size() <= 1) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Debe permanecer al menos un administrador");
+    }
+    if (!reservations.findByGuestIdOrderByCheckInDesc(id).isEmpty()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "El usuario tiene reservas asociadas; no es posible eliminarlo");
+    }
+    if (tasks.countByEmployeeIdAndStatusNot(id, TaskStatus.DONE) > 0) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "El empleado tiene tareas pendientes; reasígnalas antes de eliminarlo");
+    }
+    sessions.deleteByUserId(id);
+    users.delete(u);
   }
 
   @GetMapping("/roles")
@@ -491,6 +575,7 @@ public class HotelController {
 
   @Transactional
   @DeleteMapping("/rooms/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
   void deleteRoom(
       @RequestHeader(value = "Authorization", required = false) String authorization,
       @PathVariable Long id) {
@@ -501,6 +586,10 @@ public class HotelController {
             .orElseThrow(
                 () ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "Habitación no encontrada"));
+    if (room.getStatus() == RoomStatus.OCCUPIED) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "No se puede eliminar una habitación que actualmente está ocupada");
+    }
     if (reservations.existsByRoomId(id)) {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT,

@@ -2512,16 +2512,24 @@ function AdminUsers({ currentUser, notify }) {
   const [roles, setRoles] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 8;
-  useEffect(() => {
+
+  const load = () => {
     Promise.all([api('/users'), api('/roles')])
       .then(([list, permissions]) => {
         setUsers(list);
         setRoles(permissions);
       })
       .catch((err) => setError(err.message));
+  };
+
+  useEffect(() => {
+    load();
   }, []);
+
   const changeRole = async (user, role) => {
     if (
       !confirm(
@@ -2538,6 +2546,41 @@ function AdminUsers({ currentUser, notify }) {
       });
       setUsers((list) => list.map((u) => (u.id === updated.id ? updated : u)));
       notify(`Rol de ${updated.name} actualizado a ${label[updated.role]}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveUser = async (data) => {
+    const updated = await api(`/users/${data.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: data.name, phone: data.phone, role: data.role }),
+    });
+    setUsers((list) => list.map((u) => (u.id === updated.id ? updated : u)));
+    setEditing(null);
+    notify(`Usuario ${updated.name} actualizado`);
+  };
+
+  const createUser = async (data) => {
+    const created = await api('/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    setUsers((list) => [created, ...list]);
+    setCreating(false);
+    notify(`Usuario ${created.name} creado con éxito`);
+  };
+
+  const removeUser = async (u) => {
+    if (!confirm(`¿Eliminar la cuenta de ${u.name}? Esta acción no se puede deshacer.`)) return;
+    setBusy(u.id);
+    setError('');
+    try {
+      await api(`/users/${u.id}`, { method: 'DELETE' });
+      setUsers((list) => list.filter((item) => item.id !== u.id));
+      notify(`Usuario ${u.name} eliminado`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -2587,6 +2630,10 @@ function AdminUsers({ currentUser, notify }) {
           <h3>Usuarios registrados</h3>
           <p className="muted">Cuentas con acceso a la plataforma y asignación de roles.</p>
         </div>
+        <button className="primary" onClick={() => setCreating(true)}>
+          <Plus size={17} />
+          Nuevo usuario
+        </button>
       </div>
 
       <div className="table-wrap">
@@ -2596,7 +2643,8 @@ function AdminUsers({ currentUser, notify }) {
               <th>Usuario</th>
               <th>Contacto</th>
               <th>Rol asignado</th>
-              <th>Asignar rol</th>
+              <th>Cambio rápido</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -2643,6 +2691,25 @@ function AdminUsers({ currentUser, notify }) {
                       )}
                     </div>
                   </td>
+                  <td>
+                    <div className="request-actions">
+                      <button
+                        className="icon-button"
+                        title="Editar usuario"
+                        onClick={() => setEditing({ ...u })}
+                      >
+                        <Settings2 />
+                      </button>
+                      <button
+                        className="icon-button danger"
+                        title="Eliminar usuario"
+                        disabled={isCurrent || busy !== null}
+                        onClick={() => removeUser(u)}
+                      >
+                        <Trash2 />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -2678,7 +2745,126 @@ function AdminUsers({ currentUser, notify }) {
           </div>
         )}
       </div>
+
+      {(editing || creating) && (
+        <UserModal
+          user={editing || { name: '', email: '', phone: '', role: 'EMPLOYEE', password: '' }}
+          isNew={creating}
+          currentUser={currentUser}
+          onClose={() => {
+            setEditing(null);
+            setCreating(false);
+          }}
+          onSave={creating ? createUser : saveUser}
+        />
+      )}
     </>
+  );
+}
+
+function UserModal({ user, isNew, onClose, onSave, currentUser }) {
+  const [data, setData] = useState(user);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setData((d) => ({ ...d, [k]: v }));
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form
+        className="modal"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError('');
+          setBusy(true);
+          try {
+            await onSave(data);
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="modal-header">
+          <h3>{isNew ? 'Registrar nuevo usuario' : `Editar usuario: ${user.name}`}</h3>
+          <button type="button" className="icon-button" onClick={onClose}>
+            <X />
+          </button>
+        </div>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <label>
+          Nombre completo
+          <input
+            required
+            minLength={2}
+            value={data.name || ''}
+            onChange={(e) => set('name', e.target.value)}
+            placeholder="Ej. Carmen Restrepo"
+          />
+        </label>
+        <label>
+          Correo electrónico
+          <input
+            type="email"
+            required
+            disabled={!isNew}
+            value={data.email || ''}
+            onChange={(e) => set('email', e.target.value)}
+            placeholder="usuario@lindomar.co"
+          />
+          {!isNew && <small>El correo no se puede modificar.</small>}
+        </label>
+        <label>
+          Teléfono
+          <input
+            type="tel"
+            value={data.phone || ''}
+            onChange={(e) => set('phone', e.target.value)}
+            placeholder="3001234567"
+          />
+        </label>
+        <label>
+          Rol en la plataforma
+          <select
+            value={data.role || 'EMPLOYEE'}
+            disabled={!isNew && user?.id === currentUser?.id}
+            onChange={(e) => set('role', e.target.value)}
+          >
+            <option value="GUEST">Huésped</option>
+            <option value="EMPLOYEE">Empleado</option>
+            <option value="ADMIN">Administrador</option>
+          </select>
+          {!isNew && user?.id === currentUser?.id && (
+            <small>No puedes cambiar tu propio rol desde aquí.</small>
+          )}
+        </label>
+        {isNew && (
+          <label>
+            Contraseña inicial
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={data.password || ''}
+              onChange={(e) => set('password', e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+            />
+          </label>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Guardando...' : isNew ? 'Crear usuario' : 'Guardar cambios'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
