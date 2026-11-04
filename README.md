@@ -2,7 +2,6 @@
 
 MVP de gestión hotelera con tres experiencias: huésped, empleado y administrador.
 
-Para instalar y probar la versión actual desde cero, sigue [la guía de ejecución y pruebas](README_PRUEBAS.md), con cuentas de demo, recorridos del Sprint 2 y solución de problemas.
 
 ## Ejecutar con Docker
 
