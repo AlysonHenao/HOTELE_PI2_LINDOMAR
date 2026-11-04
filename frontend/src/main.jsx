@@ -3231,13 +3231,15 @@ function AdminReservations({ notify }) {
           rooms={allRooms}
           onClose={() => setModifying(null)}
           onSave={saveModification}
+          notify={notify}
         />
       )}
     </>
   );
 }
 
-function AdminModifyReservationModal({ reservation, rooms, onClose, onSave }) {
+function AdminModifyReservationModal({ reservation, rooms, onClose, onSave, notify }) {
+  const formRef = useRef(null);
   const [data, setData] = useState({
     id: reservation.id,
     roomId: reservation.roomId,
@@ -3269,25 +3271,50 @@ function AdminModifyReservationModal({ reservation, rooms, onClose, onSave }) {
       await onSave(data);
     } catch (err) {
       setError(err.message);
+      if (notify) {
+        notify(`Atención: ${err.message}`);
+      }
+      if (formRef.current) {
+        formRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } finally {
       setBusy(false);
     }
   };
 
+  const renderAlert = () =>
+    error ? (
+      <div
+        className="form-error"
+        role="alert"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '12px 14px',
+          borderRadius: 'var(--r-md)',
+          background: '#fef2f2',
+          color: '#b91c1c',
+          border: '1px solid #fecaca',
+          margin: '10px 0',
+          fontWeight: 500,
+        }}
+      >
+        <AlertCircle size={18} style={{ flexShrink: 0 }} />
+        <span>{error}</span>
+      </div>
+    ) : null;
+
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <form className="modal" onSubmit={handleSubmit}>
+      <form ref={formRef} className="modal" onSubmit={handleSubmit}>
         <div className="modal-header">
           <h3>Modificar reserva #{String(reservation.id).padStart(4, '0')}</h3>
           <button type="button" className="icon-button" onClick={onClose}>
             <X />
           </button>
         </div>
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
+        {renderAlert()}
         <label>
           Huésped
           <input value={reservation.guestName} disabled style={{ opacity: 0.8 }} />
@@ -3365,6 +3392,7 @@ function AdminModifyReservationModal({ reservation, rooms, onClose, onSave }) {
             Total recalculado: <strong>{money(estimatedTotal)}</strong> ({nights} noches)
           </span>
         </div>
+        {renderAlert()}
         <div className="modal-actions">
           <button type="button" className="secondary" onClick={onClose}>
             Cancelar

@@ -1008,6 +1008,7 @@ public class HotelController {
           HttpStatus.CONFLICT, "Una reserva cancelada o finalizada no puede modificarse");
     }
 
+    Long previousRoomId = r.getRoomId();
     Long targetRoomId = data.getRoomId() != null ? data.getRoomId() : r.getRoomId();
     var room =
         rooms
