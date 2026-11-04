@@ -941,6 +941,8 @@ function Rooms({ user, notify }) {
   const [filters, setFilters] = useState(defaultFilters);
   const [searchError, setSearchError] = useState('');
   const [searchedDates, setSearchedDates] = useState(null);
+  const [roomPage, setRoomPage] = useState(1);
+  const ROOM_PAGE_SIZE = 8;
   const searchVersion = useRef(0);
 
   const initialFilters = useRef(defaultFilters);
@@ -949,6 +951,7 @@ function Rooms({ user, notify }) {
     setSearchError('');
     setRooms([]);
     setSearchedDates(null);
+    setRoomPage(1);
     if (
       !criteria.checkIn ||
       !criteria.checkOut ||
@@ -1115,18 +1118,46 @@ function Rooms({ user, notify }) {
       ) : mapView ? (
         <RoomMap rooms={rooms} allRooms={allRooms} onSelect={setSelected} />
       ) : (
-        <div className="room-grid">
-          {rooms.map((r) => (
-            <RoomCard key={r.id} room={r} onSelect={setSelected} />
-          ))}
-          {!rooms.length && (
-            <div className="empty span-all">
-              <BedDouble />
-              <h3>No encontramos habitaciones</h3>
-              <p>Prueba quitando algún filtro o cambiando las fechas.</p>
+        <>
+          <div className="room-grid">
+            {rooms.slice((roomPage - 1) * ROOM_PAGE_SIZE, roomPage * ROOM_PAGE_SIZE).map((r) => (
+              <RoomCard key={r.id} room={r} onSelect={setSelected} />
+            ))}
+            {!rooms.length && (
+              <div className="empty span-all">
+                <BedDouble />
+                <h3>No encontramos habitaciones</h3>
+                <p>Prueba quitando algún filtro o cambiando las fechas.</p>
+              </div>
+            )}
+          </div>
+          {rooms.length > ROOM_PAGE_SIZE && (
+            <div className="pagination" style={{ marginTop: 24 }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={roomPage <= 1}
+                onClick={() => setRoomPage((p) => Math.max(1, p - 1))}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {roomPage} de {Math.max(1, Math.ceil(rooms.length / ROOM_PAGE_SIZE))} (
+                {rooms.length} habitaciones disponibles)
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={roomPage >= Math.ceil(rooms.length / ROOM_PAGE_SIZE)}
+                onClick={() =>
+                  setRoomPage((p) => Math.min(Math.ceil(rooms.length / ROOM_PAGE_SIZE), p + 1))
+                }
+              >
+                Siguiente
+              </button>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {selected && searchedDates && (
@@ -1189,58 +1220,145 @@ function RoomCard({ room, onSelect }) {
 }
 
 const getRoomMapFeatures = (room) => {
-  const num = String(room.number);
+  const num = String(room.number || '').trim();
+  const n = parseInt(num, 10);
   const tags = [];
 
-  // Proximidad a escaleras y circulación
-  if (num.endsWith('1')) {
-    tags.push({ icon: '🪜', label: 'Al lado de escaleras y ascensor' });
-  } else if (num.endsWith('2')) {
-    tags.push({ icon: '🕊️', label: 'Zona central muy silenciosa' });
-  } else if (num.endsWith('3')) {
-    tags.push({ icon: '🚪', label: 'Final de pasillo (mayor privacidad)' });
-  } else {
-    tags.push({ icon: '📍', label: 'Pasillo oriente' });
+  // 1. Ubicación arquitectónica y características específicas de la distribución
+  if (num === '100') {
+    tags.push({ icon: '🪜', label: 'Junto a las escaleras' });
+    tags.push({ icon: '🏢', label: 'Al lado de la recepción' });
+    tags.push({ icon: '👨‍👩‍👧‍👦', label: 'Familiar · 4 camas' });
+    tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+  } else if (num === '101') {
+    tags.push({ icon: '🪜', label: 'Al otro lado de las escaleras' });
+    tags.push({ icon: '🏢', label: 'Al lado de la recepción' });
+    tags.push({ icon: '🛏️', label: 'Cama doble' });
+    tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+  } else if (n >= 102 && n <= 106) {
+    tags.push({ icon: '🪜', label: 'Piso intermedio' });
+    tags.push({ icon: '🛏️', label: 'Cama doble' });
+    tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+  } else if (n >= 200 && n <= 221) {
+    // Piso 2
+    if (num === '201' || num === '205') {
+      tags.push({ icon: '🌀', label: 'Con ventilador' });
+      tags.push({ icon: '🛏️', label: 'Cama doble' });
+    } else {
+      tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+      if (['208', '214', '218', '219', '220'].includes(num)) {
+        tags.push({ icon: '🛏️', label: 'Dos camas' });
+      } else if (num === '221') {
+        tags.push({ icon: '👨‍👩‍👧‍👦', label: 'Familiar · Tres camas' });
+      } else {
+        tags.push({ icon: '🛏️', label: 'Cama doble' });
+      }
+    }
+    if (['200', '201', '208', '214'].includes(num)) {
+      tags.push({ icon: '🪜', label: 'Cerca a escaleras' });
+    }
+  } else if (n >= 300 && n <= 314) {
+    // Piso 3: todas con aire
+    tags.push({ icon: '❄️', label: 'Con aire acondicionado' });
+    if (num === '306') {
+      tags.push({ icon: '👨‍👩‍👧‍👦', label: 'Familiar múltiple · 5 camas' });
+    } else if (num === '314') {
+      tags.push({ icon: '👨‍👩‍👧‍👦', label: 'Familiar múltiple · 3 camas' });
+    } else if (n >= 305) {
+      tags.push({ icon: '🛏️', label: 'Cama doble' });
+    } else {
+      tags.push({ icon: '🛏️', label: 'Dos camas' });
+    }
+    if (['300', '301', '307'].includes(num)) {
+      tags.push({ icon: '🪜', label: 'Cerca a escaleras' });
+    }
   }
 
   // Balcón
   if (room.balcony) {
-    tags.push({ icon: '🌿', label: 'Con balcón exterior privado' });
-  } else {
-    tags.push({ icon: '🪟', label: 'Ventanal con luz natural' });
+    tags.push({ icon: '🌿', label: 'Con balcón privado' });
   }
 
-  // Vistas y accesibilidad por nivel
+  // Vista al mar
   if (room.services && room.services.toLowerCase().includes('vista al mar')) {
     tags.push({ icon: '🌊', label: 'Vista panorámica al mar' });
-  } else if (room.floor === 1) {
-    tags.push({ icon: '🌴', label: 'Planta baja (acceso directo a piscina y recepción)' });
-  } else if (room.floor === 3) {
-    tags.push({ icon: '🌅', label: 'Piso superior despejado' });
   }
 
-  // Mascotas
+  // Pet friendly
   if (room.petFriendly) {
-    tags.push({ icon: '🐾', label: 'Habitación pet-friendly' });
+    tags.push({ icon: '🐾', label: 'Pet-friendly' });
   }
 
   return tags;
 };
 
-/** Mapa tipo cine interactivo: enriquecido con balcones, escaleras y puntos de interés. */
+/** Mapa tipo cine interactivo: enriquecido con las 44 habitaciones oficiales en sus 4 niveles. */
 function RoomMap({ rooms, allRooms, onSelect }) {
   const source = allRooms.length ? allRooms : rooms;
-  const floors = [...new Set(source.map((r) => r.floor))].sort((a, b) => b - a);
   const availableIds = new Set(rooms.map((r) => r.id));
+
+  const sections = [
+    {
+      id: 'piso-3',
+      name: 'Piso 3',
+      badge: 'Habitaciones 300 a 314',
+      description:
+        'Piso Superior · Todas con aire acondicionado y balcón · 306 (5 camas) y 314 (3 camas) familiares',
+      rooms: source
+        .filter((r) => {
+          const n = parseInt(r.number, 10);
+          return n >= 300 && n <= 314;
+        })
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    },
+    {
+      id: 'piso-2',
+      name: 'Piso 2',
+      badge: 'Habitaciones 200 a 221',
+      description:
+        'Segundo Piso · Con aire acondicionado (201 y 205 con ventilador) · 208, 214, 218-220 (2 camas) y 221 (3 camas)',
+      rooms: source
+        .filter((r) => {
+          const n = parseInt(r.number, 10);
+          return n >= 200 && n <= 221;
+        })
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    },
+    {
+      id: 'piso-intermedio',
+      name: 'Piso Intermedio',
+      badge: 'Habitaciones 102 a 106',
+      description: 'Entrepiso · Habitaciones con cama doble y aire acondicionado',
+      rooms: source
+        .filter((r) => {
+          const n = parseInt(r.number, 10);
+          return n >= 102 && n <= 106;
+        })
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    },
+    {
+      id: 'piso-1',
+      name: 'Primer Piso (Recepción)',
+      badge: 'Habitaciones 100 y 101',
+      description:
+        'Planta Baja · Junto a recepción: Hab. 100 (Familiar 4 camas, junto a escaleras) y Hab. 101 (Doble)',
+      rooms: source
+        .filter((r) => {
+          const n = parseInt(r.number, 10);
+          return n === 100 || n === 101;
+        })
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    },
+  ];
 
   return (
     <div className="hotel-map">
       <div className="section-head" style={{ marginBottom: 10 }}>
         <div>
-          <h4>Plano interactivo del hotel</h4>
+          <h4>Plano interactivo del hotel ({source.length} habitaciones)</h4>
           <p className="muted" style={{ fontSize: 13 }}>
-            Elige tu habitación evaluando su ubicación física: cercanía a escaleras, balcones,
-            vistas y nivel de privacidad.
+            Elige tu habitación evaluando su ubicación física: cercanía a recepción, escaleras,
+            balcones, tipo de camas y climatización.
           </p>
         </div>
       </div>
@@ -1252,66 +1370,70 @@ function RoomMap({ rooms, allRooms, onSelect }) {
           <i className="occupied" /> No disponible
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          🪜 Al lado de escaleras
+          🪜 Junto a escaleras
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          🏢 Al lado de recepción
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>🌿 Con balcón</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          🌊 Vista al mar
-        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>❄️ Con aire</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>🌀 Ventilador</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           🐾 Pet-friendly
         </span>
       </div>
 
-      {floors.map((f) => (
-        <div className="floor" key={f}>
+      {sections.map((sec) => (
+        <div className="floor" key={sec.id}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <strong>Piso {f}</strong>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <strong>{sec.name}</strong>
+              <span className="badge" style={{ fontSize: 11 }}>
+                {sec.badge}
+              </span>
+            </div>
             <small className="muted" style={{ fontSize: 11 }}>
-              {f === 1 ? 'Nivel Jardín' : f === 2 ? 'Nivel Medio' : 'Piso Superior'}
+              {sec.description}
             </small>
           </div>
           <div className="floor-rooms-grid">
-            {source
-              .filter((r) => r.floor === f)
-              .sort((a, b) => a.number.localeCompare(b.number))
-              .map((room) => {
-                const free = availableIds.has(room.id);
-                const features = getRoomMapFeatures(room);
-                return (
-                  <button
-                    key={room.id}
-                    className={`map-room-card ${free ? 'available' : 'occupied'}`}
-                    disabled={!free}
-                    onClick={() => free && onSelect(room)}
-                  >
-                    <div className="map-room-header">
-                      <div className="map-room-number">
-                        <DoorOpen size={17} />
-                        <strong>Hab. {room.number}</strong>
+            {sec.rooms.map((room) => {
+              const free = availableIds.has(room.id);
+              const features = getRoomMapFeatures(room);
+              return (
+                <button
+                  key={room.id}
+                  className={`map-room-card ${free ? 'available' : 'occupied'}`}
+                  disabled={!free}
+                  onClick={() => free && onSelect(room)}
+                >
+                  <div className="map-room-header">
+                    <div className="map-room-number">
+                      <DoorOpen size={17} />
+                      <strong>Hab. {room.number}</strong>
+                    </div>
+                    <span className="map-room-type-badge">{room.type}</span>
+                  </div>
+
+                  <div className="map-room-price">
+                    {free
+                      ? money(room.price)
+                      : room.status === 'AVAILABLE'
+                        ? 'No disponible en fechas'
+                        : label[room.status] || 'No disponible'}
+                  </div>
+
+                  <div className="map-room-tags">
+                    {features.map((item, idx) => (
+                      <div key={idx} className="map-room-tag">
+                        <span>{item.icon}</span>
+                        <span>{item.label}</span>
                       </div>
-                      <span className="map-room-type-badge">{room.type}</span>
-                    </div>
-
-                    <div className="map-room-price">
-                      {free
-                        ? money(room.price)
-                        : room.status === 'AVAILABLE'
-                          ? 'No disponible en fechas'
-                          : label[room.status] || 'No disponible'}
-                    </div>
-
-                    <div className="map-room-tags">
-                      {features.map((item, idx) => (
-                        <div key={idx} className="map-room-tag">
-                          <span>{item.icon}</span>
-                          <span>{item.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </button>
-                );
-              })}
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -4606,44 +4728,86 @@ function FinancialReportModal({ entries, onClose }) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-            gap: 14,
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
             marginBottom: 24,
             width: '100%',
             boxSizing: 'border-box',
           }}
         >
-          <div className="metric" style={{ margin: 0, minWidth: 0, boxSizing: 'border-box' }}>
+          <div
+            className="metric"
+            style={{
+              margin: 0,
+              padding: '16px 14px',
+              minWidth: 0,
+              boxSizing: 'border-box',
+            }}
+          >
             <span>
               <TrendingUp />
             </span>
             <div style={{ minWidth: 0, overflow: 'hidden' }}>
               <small>Ingresos período</small>
-              <strong style={{ fontSize: 'clamp(18px, 2vw, 22px)', wordBreak: 'break-word' }}>
+              <strong
+                style={{
+                  fontSize: 'clamp(16px, 1.8vw, 22px)',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {money(totalIncome)}
               </strong>
               <em>{filtered.filter((e) => e.type === 'INCOME').length} movimientos</em>
             </div>
           </div>
-          <div className="metric" style={{ margin: 0, minWidth: 0, boxSizing: 'border-box' }}>
+          <div
+            className="metric"
+            style={{
+              margin: 0,
+              padding: '16px 14px',
+              minWidth: 0,
+              boxSizing: 'border-box',
+            }}
+          >
             <span>
               <TrendingDown />
             </span>
             <div style={{ minWidth: 0, overflow: 'hidden' }}>
               <small>Gastos período</small>
-              <strong style={{ fontSize: 'clamp(18px, 2vw, 22px)', wordBreak: 'break-word' }}>
+              <strong
+                style={{
+                  fontSize: 'clamp(16px, 1.8vw, 22px)',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {money(totalExpense)}
               </strong>
               <em>{filtered.filter((e) => e.type === 'EXPENSE').length} movimientos</em>
             </div>
           </div>
-          <div className="metric" style={{ margin: 0, minWidth: 0, boxSizing: 'border-box' }}>
+          <div
+            className="metric"
+            style={{
+              margin: 0,
+              padding: '16px 14px',
+              minWidth: 0,
+              boxSizing: 'border-box',
+            }}
+          >
             <span>
               <WalletCards />
             </span>
             <div style={{ minWidth: 0, overflow: 'hidden' }}>
               <small>Balance neto</small>
-              <strong style={{ fontSize: 'clamp(18px, 2vw, 22px)', wordBreak: 'break-word' }}>
+              <strong
+                style={{
+                  fontSize: 'clamp(16px, 1.8vw, 22px)',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {money(netBalance)}
               </strong>
               <em>{netBalance >= 0 ? 'Superávit' : 'Déficit'}</em>
