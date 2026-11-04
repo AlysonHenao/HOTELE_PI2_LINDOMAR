@@ -554,4 +554,27 @@ class UserAndRoomStoriesSprint3Test {
                 .content(json.writeValueAsString(shortPassword)))
         .andExpect(status().isBadRequest());
   }
+
+  @Test
+  void employeeAndAdminCanAlsoUpdateTheirOwnProfile() throws Exception {
+    var updateEmployee = Map.of("name", "Empleado Actualizado", "phone", "3119998877");
+    mvc.perform(
+            put("/api/auth/profile")
+                .header("Authorization", auth("empleado@lindomar.co"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(updateEmployee)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("Empleado Actualizado"))
+        .andExpect(jsonPath("$.role").value("EMPLOYEE"));
+
+    var updateAdmin = Map.of("name", "Admin Actualizado", "phone", "3158887766");
+    mvc.perform(
+            put("/api/auth/profile")
+                .header("Authorization", auth("admin@lindomar.co"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(updateAdmin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("Admin Actualizado"))
+        .andExpect(jsonPath("$.role").value("ADMIN"));
+  }
 }

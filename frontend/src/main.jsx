@@ -442,6 +442,7 @@ const navByRole = {
     ['tasks', 'Mis tareas', ClipboardCheck],
     ['task-notifications', 'Avisos de tareas', Bell],
     ['staff-requests', 'Solicitudes', ConciergeBell],
+    ['profile', 'Mi perfil', User],
   ],
   ADMIN: [
     ['admin-home', 'Resumen', LayoutDashboard],
@@ -451,6 +452,7 @@ const navByRole = {
     ['admin-users', 'Equipo y usuarios', Users],
     ['admin-tasks', 'Tareas', ClipboardCheck],
     ['finance', 'Finanzas', CircleDollarSign],
+    ['profile', 'Mi perfil', User],
   ],
 };
 
@@ -538,9 +540,9 @@ function Shell({ user, onLogout, theme, toggleTheme, onUserUpdate }) {
         </nav>
         <div
           className="sidebar-foot"
-          onClick={() => user.role === 'GUEST' && setPage('profile')}
-          style={{ cursor: user.role === 'GUEST' ? 'pointer' : 'default' }}
-          title={user.role === 'GUEST' ? 'Ir a mi perfil' : undefined}
+          onClick={() => setPage('profile')}
+          style={{ cursor: 'pointer' }}
+          title="Ir a mi perfil"
         >
           <div className="avatar">{initials(user.name)}</div>
           <div>
@@ -583,9 +585,9 @@ function Shell({ user, onLogout, theme, toggleTheme, onUserUpdate }) {
             </button>
             <div
               className="avatar"
-              onClick={() => user.role === 'GUEST' && setPage('profile')}
-              style={{ cursor: user.role === 'GUEST' ? 'pointer' : 'default' }}
-              title={user.role === 'GUEST' ? 'Ir a mi perfil' : user.name}
+              onClick={() => setPage('profile')}
+              style={{ cursor: 'pointer' }}
+              title={`Ir a mi perfil (${user.name})`}
             >
               {initials(user.name)}
             </div>
@@ -608,9 +610,21 @@ function Shell({ user, onLogout, theme, toggleTheme, onUserUpdate }) {
               goToTasks={() => setPage('tasks')}
             />
           ) : user.role === 'EMPLOYEE' ? (
-            <Employee page={page} user={user} notify={notify} onChange={refreshBadge} />
+            <Employee
+              page={page}
+              user={user}
+              notify={notify}
+              onChange={refreshBadge}
+              onUserUpdate={onUserUpdate}
+            />
           ) : user.role === 'ADMIN' ? (
-            <Admin page={page} user={user} notify={notify} onChange={refreshBadge} />
+            <Admin
+              page={page}
+              user={user}
+              notify={notify}
+              onChange={refreshBadge}
+              onUserUpdate={onUserUpdate}
+            />
           ) : (
             <p role="alert">Tu cuenta no tiene un rol válido.</p>
           )}
@@ -628,11 +642,11 @@ function Guest({ page, user, notify, go, onUserUpdate }) {
   if (page === 'reservations') return <Reservations user={user} notify={notify} />;
   if (page === 'requests') return <Requests user={user} notify={notify} />;
   if (page === 'profile')
-    return <GuestProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <Assistant />;
 }
 
-function GuestProfile({ user, notify, onUserUpdate }) {
+function UserProfile({ user, notify, onUserUpdate }) {
   const [data, setData] = useState({
     name: user.name || '',
     email: user.email || '',
@@ -726,7 +740,9 @@ function GuestProfile({ user, notify, onUserUpdate }) {
           </div>
           <div>
             <h3 style={{ margin: '0 0 4px' }}>{user.name}</h3>
-            <span className="role-badge guest">{label[user.role] || 'Huésped'}</span>
+            <span className={`role-badge ${user.role?.toLowerCase()}`}>
+              {label[user.role] || user.role}
+            </span>
           </div>
         </div>
 
@@ -2022,8 +2038,10 @@ function Assistant() {
 }
 
 /* ============ EMPLEADO ============ */
-function Employee({ page, user, notify, onChange }) {
+function Employee({ page, user, notify, onChange, onUserUpdate }) {
   if (page === 'staff-requests') return <ServiceRequests notify={notify} onChange={onChange} />;
+  if (page === 'profile')
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <EmployeeTasks user={user} notify={notify} />;
 }
 
@@ -2437,13 +2455,16 @@ function Metric({ icon: Icon, label: lab, value, help }) {
   );
 }
 
-function Admin({ page, user, notify, onChange }) {
+function Admin({ page, user, notify, onChange, onUserUpdate }) {
   if (page === 'admin-home') return <AdminHome notify={notify} />;
   if (page === 'admin-rooms') return <AdminRooms notify={notify} />;
   if (page === 'admin-reservations') return <AdminReservations notify={notify} />;
   if (page === 'admin-requests') return <ServiceRequests notify={notify} onChange={onChange} />;
   if (page === 'admin-users') return <AdminUsers currentUser={user} notify={notify} />;
   if (page === 'admin-tasks') return <AdminTasks notify={notify} />;
+  if (page === 'finance') return <Finance notify={notify} />;
+  if (page === 'profile')
+    return <UserProfile user={user} notify={notify} onUserUpdate={onUserUpdate} />;
   return <Finance notify={notify} />;
 }
 
