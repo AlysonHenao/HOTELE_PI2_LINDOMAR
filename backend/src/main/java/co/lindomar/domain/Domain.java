@@ -13,6 +13,7 @@ import jakarta.persistence.Transient;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /** Define Domain para la gestión del hotel. */
 public final class Domain {
@@ -344,6 +345,10 @@ public final class Domain {
     private LocalDate checkOut;
     private int guests;
     private BigDecimal amount;
+    private OffsetDateTime cancelledAt;
+
+    @Enumerated(EnumType.STRING)
+    private Role cancelledByRole;
 
     @Enumerated(EnumType.STRING)
     private ReservationStatus status;
@@ -406,6 +411,20 @@ public final class Domain {
 
     public void setAmount(BigDecimal v) {
       amount = v;
+    }
+
+    public OffsetDateTime getCancelledAt() {
+      return cancelledAt;
+    }
+
+    public Role getCancelledByRole() {
+      return cancelledByRole;
+    }
+
+    /** Registra cuándo y desde qué rol se canceló la reserva. */
+    public void recordCancellation(OffsetDateTime at, Role role) {
+      cancelledAt = at;
+      cancelledByRole = role;
     }
 
     public ReservationStatus getStatus() {

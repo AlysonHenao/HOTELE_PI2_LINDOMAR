@@ -9,6 +9,7 @@ import co.lindomar.repository.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
     })
 class Sprint1IntegrationTest {
   @Autowired MockMvc mvc;
+  @Autowired Clock hotelClock;
   @Autowired ObjectMapper json;
   @Autowired UserRepository users;
   @Autowired RoomRepository rooms;
@@ -197,8 +199,8 @@ class Sprint1IntegrationTest {
   void searchRejectsPastEqualAndReversedDates(int start, int end) throws Exception {
     mvc.perform(
             get("/api/rooms")
-                .param("checkIn", LocalDate.now().plusDays(start).toString())
-                .param("checkOut", LocalDate.now().plusDays(end).toString()))
+                .param("checkIn", LocalDate.now(hotelClock).plusDays(start).toString())
+                .param("checkOut", LocalDate.now(hotelClock).plusDays(end).toString()))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").isNotEmpty());
   }
