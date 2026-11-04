@@ -693,43 +693,8 @@ select {
   text-underline-offset: 3px;
 }
 
-.demo {
-  text-align: center;
-  border-top: 1px solid var(--line);
-  margin-top: 26px;
-  padding-top: 20px;
-}
-.demo > span,
-.demo small {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-}
-.demo div {
-  display: flex;
-  gap: 8px;
+.login-brand {
   justify-content: center;
-  margin: 12px 0;
-  flex-wrap: wrap;
-}
-.demo button {
-  border: 1px solid var(--line-strong);
-  background: var(--bg-elevated);
-  border-radius: var(--r-full);
-  padding: 8px 14px;
-  color: var(--ocean-700);
-  font-size: 12px;
-  font-weight: 600;
-  transition: all 0.16s var(--ease);
-}
-.demo button:hover {
-  border-color: var(--ocean-400);
-  background: var(--ocean-50);
-  transform: translateY(-2px);
-}
-
-.mobile-brand {
-  display: none;
 }
 
 /* Decoración burbujas */
@@ -2717,12 +2682,6 @@ td > small {
   .login-panel {
     padding: 28px;
     min-height: 100vh;
-  }
-  .mobile-brand {
-    display: flex;
-    color: var(--ocean-800);
-    margin-bottom: 32px;
-    justify-content: center;
   }
   .login-card {
     padding: 28px;

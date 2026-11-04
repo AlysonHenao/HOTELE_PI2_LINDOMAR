@@ -202,7 +202,7 @@ function Toast({ toast, onClose }) {
 /* ---------- Autenticación ---------- */
 function Login({ onLogin }) {
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ email: 'huesped@lindomar.co', password: 'demo123' });
+  const [form, setForm] = useState({ email: '', password: '' });
   const [signup, setSignup] = useState({ name: '', email: '', password: '', phone: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -221,12 +221,6 @@ function Login({ onLogin }) {
       setLoading(false);
     }
   };
-
-  const demos = [
-    ['Huésped', 'huesped@lindomar.co'],
-    ['Empleado', 'empleado@lindomar.co'],
-    ['Administrador', 'admin@lindomar.co'],
-  ];
 
   return (
     <div className="login-page">
@@ -301,15 +295,11 @@ function Login({ onLogin }) {
 
       <section className="login-panel">
         <form className="login-card" onSubmit={submit}>
-          <div className="brand mobile-brand">
+          <div className="brand login-brand">
             <Logo />
             <span>
               LINDOMAR<small>HOTEL &amp; DESCANSO</small>
             </span>
-          </div>
-          <div className="brand" style={{ justifyContent: 'center', marginBottom: 28 }}>
-            <Logo />
-            <span>LINDOMAR</span>
           </div>
           <span className="eyebrow green">
             {mode === 'login' ? 'BIENVENIDO DE NUEVO' : 'CREA TU CUENTA'}
@@ -414,24 +404,6 @@ function Login({ onLogin }) {
               {mode === 'login' ? 'Regístrate' : 'Inicia sesión'}
             </button>
           </p>
-
-          {mode === 'login' && (
-            <div className="demo">
-              <span>O entra con una cuenta de demostración</span>
-              <div>
-                {demos.map(([name, email]) => (
-                  <button
-                    type="button"
-                    key={email}
-                    onClick={() => setForm({ email, password: 'demo123' })}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              <small>Contraseña: demo123</small>
-            </div>
-          )}
         </form>
 
         <span
