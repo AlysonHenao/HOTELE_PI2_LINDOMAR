@@ -10,9 +10,9 @@ import org.springframework.data.repository.query.Param;
 
 /** Proporciona acceso a habitaciones, incluido el bloqueo usado al reservar. */
 public interface RoomRepository extends JpaRepository<Room, Long> {
+  Optional<Room> findByNumber(String number);
+
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select r from Room r where r.id = :id")
   Optional<Room> findByIdForUpdate(@Param("id") Long id);
-
-  Optional<Room> findByNumber(String number);
 }

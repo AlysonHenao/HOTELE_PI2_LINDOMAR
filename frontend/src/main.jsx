@@ -1,8 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import logoUrl from '/logo.svg';
 import {
+  Bed,
   BedDouble,
+  Building,
+  Dog,
+  Fan,
+  Footprints,
+  Trees,
+  Wind,
   Bell,
   BellRing,
   CalendarClock,
@@ -15,7 +22,10 @@ import {
   Clock3,
   ConciergeBell,
   DoorOpen,
+  Download,
   Eye,
+  FileSpreadsheet,
+  FileText,
   LayoutDashboard,
   LogOut,
   Map,
@@ -24,7 +34,10 @@ import {
   MessageCircle,
   Moon,
   Plus,
+  Printer,
+  RotateCcw,
   Search,
+  Send,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -126,6 +139,18 @@ const initials = (name) =>
     .join('');
 /** Días restantes hasta una fecha; negativo si ya venció. */
 const daysUntil = (d) => Math.ceil((new Date(`${d}T12:00:00`) - new Date()) / 86400000);
+
+const downloadCsv = (filename, content) => {
+  const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
 
 /** Bloquea clics repetidos y conserva un error visible cuando falla un pago. */
 function useReminderPayment(notify, reload) {
@@ -995,25 +1020,33 @@ function Rooms({ user, notify }) {
   const [loading, setLoading] = useState(true);
   const [mapView, setMapView] = useState(false);
   const [selected, setSelected] = useState(null);
-  const [filters, setFilters] = useState({
-    type: '',
-    capacity: '',
-    maxPrice: '',
-    balcony: false,
-    petFriendly: false,
-    checkIn: today(),
-    checkOut: future(1),
-  });
+  const defaultFilters = useMemo(
+    () => ({
+      type: '',
+      capacity: '',
+      maxPrice: '',
+      service: '',
+      balcony: false,
+      petFriendly: false,
+      checkIn: today(),
+      checkOut: future(1),
+    }),
+    []
+  );
+  const [filters, setFilters] = useState(defaultFilters);
   const [searchError, setSearchError] = useState('');
   const [searchedDates, setSearchedDates] = useState(null);
+  const [roomPage, setRoomPage] = useState(1);
+  const ROOM_PAGE_SIZE = 8;
   const searchVersion = useRef(0);
 
-  const initialFilters = useRef(filters);
+  const initialFilters = useRef(defaultFilters);
   const load = useCallback(async (criteria) => {
     const version = ++searchVersion.current;
     setSearchError('');
     setRooms([]);
     setSearchedDates(null);
+    setRoomPage(1);
     if (
       !criteria.checkIn ||
       !criteria.checkOut ||
@@ -1123,6 +1156,22 @@ function Rooms({ user, notify }) {
             <option value="400000">$400.000</option>
           </select>
         </label>
+        <label>
+          Servicio o comodidad
+          <select
+            value={filters.service}
+            onChange={(e) => setFilters({ ...filters, service: e.target.value })}
+          >
+            <option value="">Todos los servicios</option>
+            <option value="Jacuzzi">Jacuzzi</option>
+            <option value="Smart TV">Smart TV</option>
+            <option value="Wi-Fi">Wi-Fi</option>
+            <option value="Aire acondicionado">Aire acondicionado</option>
+            <option value="Minibar">Minibar</option>
+            <option value="Desayuno buffet">Desayuno buffet</option>
+            <option value="Vista al mar">Vista al mar</option>
+          </select>
+        </label>
         <div className="checks">
           <label>
             <input
@@ -1141,6 +1190,18 @@ function Rooms({ user, notify }) {
             Mascotas
           </label>
         </div>
+        <button
+          type="button"
+          className="secondary search-button"
+          title="Restablecer filtros"
+          onClick={() => {
+            setFilters(defaultFilters);
+            load(defaultFilters);
+          }}
+        >
+          <RotateCcw size={16} />
+          Limpiar
+        </button>
         <button className="primary search-button" onClick={() => load(filters)}>
           <Search />
           Buscar
@@ -1156,18 +1217,46 @@ function Rooms({ user, notify }) {
       ) : mapView ? (
         <RoomMap rooms={rooms} allRooms={allRooms} onSelect={setSelected} />
       ) : (
-        <div className="room-grid">
-          {rooms.map((r) => (
-            <RoomCard key={r.id} room={r} onSelect={setSelected} />
-          ))}
-          {!rooms.length && (
-            <div className="empty span-all">
-              <BedDouble />
-              <h3>No encontramos habitaciones</h3>
-              <p>Prueba quitando algún filtro o cambiando las fechas.</p>
+        <>
+          <div className="room-grid">
+            {rooms.slice((roomPage - 1) * ROOM_PAGE_SIZE, roomPage * ROOM_PAGE_SIZE).map((r) => (
+              <RoomCard key={r.id} room={r} onSelect={setSelected} />
+            ))}
+            {!rooms.length && (
+              <div className="empty span-all">
+                <BedDouble />
+                <h3>No encontramos habitaciones</h3>
+                <p>Prueba quitando algún filtro o cambiando las fechas.</p>
+              </div>
+            )}
+          </div>
+          {rooms.length > ROOM_PAGE_SIZE && (
+            <div className="pagination" style={{ marginTop: 24 }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={roomPage <= 1}
+                onClick={() => setRoomPage((p) => Math.max(1, p - 1))}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {roomPage} de {Math.max(1, Math.ceil(rooms.length / ROOM_PAGE_SIZE))} (
+                {rooms.length} habitaciones disponibles)
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={roomPage >= Math.ceil(rooms.length / ROOM_PAGE_SIZE)}
+                onClick={() =>
+                  setRoomPage((p) => Math.min(Math.ceil(rooms.length / ROOM_PAGE_SIZE), p + 1))
+                }
+              >
+                Siguiente
+              </button>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {selected && searchedDates && (
@@ -1240,59 +1329,245 @@ function RoomCard({ room, onSelect }) {
   );
 }
 
-/** Mapa tipo cine: construido a partir de las habitaciones reales del hotel. */
+const getRoomMapFeatures = (room) => {
+  const num = String(room.number || '').trim();
+  const n = parseInt(num, 10);
+  const tags = [];
+
+  // 1. Ubicación arquitectónica y características específicas de la distribución
+  if (num === '100') {
+    tags.push({ icon: Footprints, label: 'Junto a escaleras' });
+    tags.push({ icon: Building, label: 'Al lado de recepción' });
+    tags.push({ icon: Users, label: 'Familiar · 4 camas' });
+    tags.push({ icon: Wind, label: 'Aire acondicionado' });
+  } else if (num === '101') {
+    tags.push({ icon: Footprints, label: 'Al lado de escaleras' });
+    tags.push({ icon: Building, label: 'Al lado de recepción' });
+    tags.push({ icon: BedDouble, label: 'Cama doble' });
+    tags.push({ icon: Wind, label: 'Aire acondicionado' });
+  } else if (n >= 102 && n <= 106) {
+    tags.push({ icon: Footprints, label: 'Piso intermedio' });
+    tags.push({ icon: BedDouble, label: 'Cama doble' });
+    tags.push({ icon: Wind, label: 'Aire acondicionado' });
+  } else if (n >= 200 && n <= 221) {
+    // Piso 2
+    if (num === '201' || num === '205') {
+      tags.push({ icon: Fan, label: 'Ventilador' });
+      tags.push({ icon: BedDouble, label: 'Cama doble' });
+    } else {
+      tags.push({ icon: Wind, label: 'Aire acondicionado' });
+      if (['208', '214', '218', '219', '220'].includes(num)) {
+        tags.push({ icon: Bed, label: 'Dos camas' });
+      } else if (num === '221') {
+        tags.push({ icon: Users, label: 'Familiar · 3 camas' });
+      } else {
+        tags.push({ icon: BedDouble, label: 'Cama doble' });
+      }
+    }
+    if (['200', '201', '208', '214'].includes(num)) {
+      tags.push({ icon: Footprints, label: 'Cerca a escaleras' });
+    }
+  } else if (n >= 300 && n <= 314) {
+    // Piso 3: todas con aire
+    tags.push({ icon: Wind, label: 'Aire acondicionado' });
+    if (num === '306') {
+      tags.push({ icon: Users, label: 'Familiar · 5 camas' });
+    } else if (num === '314') {
+      tags.push({ icon: Users, label: 'Familiar · 3 camas' });
+    } else if (n >= 305) {
+      tags.push({ icon: BedDouble, label: 'Cama doble' });
+    } else {
+      tags.push({ icon: Bed, label: 'Dos camas' });
+    }
+    if (['300', '301', '307'].includes(num)) {
+      tags.push({ icon: Footprints, label: 'Cerca a escaleras' });
+    }
+  }
+
+  // Balcón
+  if (room.balcony) {
+    tags.push({ icon: Trees, label: 'Con balcón privado' });
+  }
+
+  // Vista al mar
+  if (room.services && room.services.toLowerCase().includes('vista al mar')) {
+    tags.push({ icon: Waves, label: 'Vista panorámica al mar' });
+  }
+
+  // Pet friendly
+  if (room.petFriendly) {
+    tags.push({ icon: Dog, label: 'Pet-friendly' });
+  }
+
+  return tags;
+};
+
+/** Mapa tipo cine interactivo: enriquecido con las 44 habitaciones oficiales en sus 4 niveles. */
 function RoomMap({ rooms, allRooms, onSelect }) {
   const source = allRooms.length ? allRooms : rooms;
-  const floors = [...new Set(source.map((r) => r.floor))].sort((a, b) => b - a);
   const availableIds = new Set(rooms.map((r) => r.id));
+
+  const sections = [
+    {
+      id: 'piso-3',
+      name: 'Piso 3',
+      badge: 'Habitaciones 300 a 314',
+      description:
+        'Piso Superior · Todas con aire acondicionado y balcón · 306 (5 camas) y 314 (3 camas) familiares',
+      rooms: source
+        .filter((r) => {
+          const n = parseInt(r.number, 10);
+          return n >= 300 && n <= 314;
+        })
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    },
+    {
+      id: 'piso-2',
+      name: 'Piso 2',
+      badge: 'Habitaciones 200 a 221',
+      description:
+        'Segundo Piso · Con aire acondicionado (201 y 205 con ventilador) · 208, 214, 218-220 (2 camas) y 221 (3 camas)',
+      rooms: source
+        .filter((r) => {
+          const n = parseInt(r.number, 10);
+          return n >= 200 && n <= 221;
+        })
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    },
+    {
+      id: 'piso-intermedio',
+      name: 'Piso Intermedio',
+      badge: 'Habitaciones 102 a 106',
+      description: 'Entrepiso · Habitaciones con cama doble y aire acondicionado',
+      rooms: source
+        .filter((r) => {
+          const n = parseInt(r.number, 10);
+          return n >= 102 && n <= 106;
+        })
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    },
+    {
+      id: 'piso-1',
+      name: 'Primer Piso (Recepción)',
+      badge: 'Habitaciones 100 y 101',
+      description:
+        'Planta Baja · Junto a recepción: Hab. 100 (Familiar 4 camas, junto a escaleras) y Hab. 101 (Doble)',
+      rooms: source
+        .filter((r) => {
+          const n = parseInt(r.number, 10);
+          return n === 100 || n === 101;
+        })
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    },
+  ];
 
   return (
     <div className="hotel-map">
-      <div className="map-legend">
+      <div className="section-head" style={{ marginBottom: 12 }}>
+        <div>
+          <h4>Plano interactivo del hotel ({source.length} habitaciones)</h4>
+          <p className="muted" style={{ fontSize: 13 }}>
+            Elige tu habitación evaluando su ubicación física: cercanía a recepción, escaleras,
+            balcones, tipo de camas y climatización.
+          </p>
+        </div>
+      </div>
+      <div className="map-legend" style={{ flexWrap: 'wrap', gap: 14, marginBottom: 20 }}>
         <span>
-          <i />
-          Disponible
+          <i /> Disponible
         </span>
         <span>
-          <i className="occupied" />
-          No disponible
+          <i className="occupied" /> No disponible
+        </span>
+        <span className="legend-chip">
+          <Footprints size={14} /> Escaleras
+        </span>
+        <span className="legend-chip">
+          <Building size={14} /> Recepción
+        </span>
+        <span className="legend-chip">
+          <Trees size={14} /> Balcón
+        </span>
+        <span className="legend-chip">
+          <Wind size={14} /> Aire acond.
+        </span>
+        <span className="legend-chip">
+          <Fan size={14} /> Ventilador
+        </span>
+        <span className="legend-chip">
+          <Dog size={14} /> Pet-friendly
         </span>
       </div>
-      {floors.map((f) => (
-        <div className="floor" key={f}>
-          <strong>Piso {f}</strong>
-          <div>
-            {source
-              .filter((r) => r.floor === f)
-              .sort((a, b) => a.number.localeCompare(b.number))
-              .map((room) => {
-                const free = availableIds.has(room.id);
-                return (
-                  <button
-                    key={room.id}
-                    className={free ? 'available' : 'occupied'}
-                    disabled={!free}
-                    onClick={() => free && onSelect(room)}
-                  >
-                    <DoorOpen />
-                    <span>{room.number}</span>
-                    <small>
-                      {free
-                        ? money(room.price)
-                        : room.status === 'AVAILABLE'
-                          ? 'No disponible en estas fechas'
-                          : label[room.status] || 'No disponible'}
-                    </small>
-                  </button>
-                );
-              })}
+
+      {sections.map((sec) => (
+        <div className="floor" key={sec.id}>
+          <div className="floor-header">
+            <div>
+              <div className="floor-header-title">
+                <h4>{sec.name}</h4>
+                <span className="badge" style={{ fontSize: 11 }}>
+                  {sec.badge}
+                </span>
+              </div>
+              <p className="floor-header-desc">{sec.description}</p>
+            </div>
+            <span className="badge green" style={{ fontSize: 11, alignSelf: 'flex-start' }}>
+              {sec.rooms.length} habitaciones
+            </span>
+          </div>
+
+          <div className="floor-rooms-grid">
+            {sec.rooms.map((room) => {
+              const free = availableIds.has(room.id);
+              const features = getRoomMapFeatures(room);
+              return (
+                <button
+                  key={room.id}
+                  className={`map-room-card ${free ? 'available' : 'occupied'}`}
+                  disabled={!free}
+                  onClick={() => free && onSelect(room)}
+                >
+                  <div className="map-room-header">
+                    <div className="map-room-number">
+                      <DoorOpen size={18} />
+                      <strong>Hab. {room.number}</strong>
+                    </div>
+                    <span className="map-room-type-badge">{room.type}</span>
+                  </div>
+
+                  <div className="map-room-price">
+                    {free ? (
+                      <>
+                        {money(room.price)}
+                        <small>/ noche</small>
+                      </>
+                    ) : room.status === 'AVAILABLE' ? (
+                      'No disponible en fechas'
+                    ) : (
+                      label[room.status] || 'No disponible'
+                    )}
+                  </div>
+
+                  <div className="map-room-tags">
+                    {features.map((item, idx) => {
+                      const IconComponent = item.icon;
+                      return (
+                        <span key={idx} className="map-room-tag">
+                          <IconComponent size={13} />
+                          <span>{item.label}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}
     </div>
   );
 }
-
 function RoomDetailsModal({ roomId, user, dates, onClose, onDone }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState('');
@@ -1970,6 +2245,131 @@ function ReservationChangeModal({ reservation, onClose, onSaved }) {
   );
 }
 
+function RequestCommentSection({ request, onCommentAdded, notify }) {
+  const [adding, setAdding] = useState(false);
+  const [comment, setComment] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submitComment = async (e) => {
+    e.preventDefault();
+    if (!comment.trim() || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/requests/${request.id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ comment: comment.trim() }),
+      });
+      notify('Comentario agregado a la solicitud');
+      setComment('');
+      setAdding(false);
+      onCommentAdded?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const lines = (request.notes || '').split('\n').filter(Boolean);
+
+  return (
+    <div className="request-thread" style={{ marginTop: 6 }}>
+      <div className="thread-notes">
+        {lines.map((line, idx) => {
+          const isComment = line.startsWith('[');
+          return (
+            <div
+              key={idx}
+              style={{
+                fontSize: 13,
+                color: isComment ? 'var(--ink-soft)' : 'inherit',
+                background: isComment ? 'var(--bg-sunken)' : 'transparent',
+                padding: isComment ? '4px 8px' : '2px 0',
+                borderRadius: isComment ? 6 : 0,
+                marginTop: isComment ? 4 : 0,
+                borderLeft: isComment ? '2px solid var(--sun-500)' : 'none',
+              }}
+            >
+              {line}
+            </div>
+          );
+        })}
+      </div>
+      {error && (
+        <p className="form-error" role="alert" style={{ fontSize: 12, marginTop: 4 }}>
+          {error}
+        </p>
+      )}
+      {!adding ? (
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => setAdding(true)}
+          style={{
+            marginTop: 6,
+            fontSize: 12,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            background: 'none',
+            border: 'none',
+            color: 'var(--primary)',
+            cursor: 'pointer',
+            padding: 0,
+            textDecoration: 'underline',
+          }}
+        >
+          <Plus size={13} /> Agregar detalle / comentario
+        </button>
+      ) : (
+        <form onSubmit={submitComment} style={{ marginTop: 8 }}>
+          <textarea
+            placeholder="Escribe un comentario o actualización..."
+            value={comment}
+            maxLength={600}
+            rows={2}
+            onChange={(e) => setComment(e.target.value)}
+            required
+            style={{
+              width: '100%',
+              marginBottom: 6,
+              fontSize: 13,
+              padding: 8,
+              boxSizing: 'border-box',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="submit"
+              className="primary"
+              disabled={busy || !comment.trim()}
+              style={{ fontSize: 12, padding: '4px 10px' }}
+            >
+              <Send size={12} />
+              {busy ? 'Enviando…' : 'Comentar'}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                setAdding(false);
+                setComment('');
+                setError('');
+              }}
+              style={{ fontSize: 12, padding: '4px 10px' }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function Requests({ user, notify }) {
   const [items, setItems] = useState([]);
   const [stays, setStays] = useState([]);
@@ -2132,7 +2532,7 @@ function Requests({ user, notify }) {
                     timeStyle: 'short',
                   })}
                 </small>
-                <p>{i.notes}</p>
+                <RequestCommentSection request={i} onCommentAdded={load} notify={notify} />
               </div>
               <em className={`status ${i.status.toLowerCase()}`}>{label[i.status]}</em>
             </article>
@@ -2555,7 +2955,7 @@ function ServiceRequests({ notify, onChange }) {
                   timeStyle: 'short',
                 })}
               </small>
-              <p>{i.notes}</p>
+              <RequestCommentSection request={i} onCommentAdded={load} notify={notify} />
             </div>
             <div className="request-actions">
               <span className={`status ${i.status.toLowerCase()}`}>{label[i.status]}</span>
@@ -2607,7 +3007,7 @@ function ServiceRequests({ notify, onChange }) {
                   <strong>
                     {i.category} · Habitación {i.roomNumber}
                   </strong>
-                  <p>{i.notes}</p>
+                  <RequestCommentSection request={i} onCommentAdded={load} notify={notify} />
                 </div>
                 <span className="status resolved">{label[i.status]}</span>
               </article>
@@ -2648,10 +3048,177 @@ function Admin({ page, user, notify, onChange, onUserUpdate }) {
   return <Finance notify={notify} />;
 }
 
+function OperationalReportModal({ dashboard, onClose }) {
+  const d = dashboard || {};
+  const occupancy = Number.isFinite(d.occupancyRate) ? d.occupancyRate : 0;
+  const currentDate = new Date().toLocaleDateString('es-CO', {
+    dateStyle: 'full',
+  });
+
+  const exportCsv = () => {
+    const lines = [
+      `Hotel Lindomar - Informe Operativo`,
+      `Fecha de corte,${currentDate}`,
+      '',
+      'Indicador Operativo,Valor',
+      `Habitaciones totales,${d.rooms || 0}`,
+      `Ocupación actual,${occupancy}%`,
+      `Habitaciones disponibles,${d.available || 0}`,
+      `Habitaciones ocupadas,${d.occupied || 0}`,
+      `Habitaciones reservadas,${d.reserved || 0}`,
+      `Habitaciones en mantenimiento,${d.maintenance || 0}`,
+      `Habitaciones fuera de servicio,${d.outOfService || 0}`,
+      `Reservas activas,${d.activeReservations || 0}`,
+      `Solicitudes abiertas,${d.openRequests || 0}`,
+      `Temporada,${d.season || 'Regular'}`,
+      `Personal de aseo recomendado,${d.suggestedCleaners || 1} persona(s)`,
+    ];
+    downloadCsv(`informe_operativo_${today()}.csv`, lines.join('\n'));
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ width: 'min(760px, 100%)' }}>
+        <button type="button" className="modal-close" onClick={onClose}>
+          <X />
+        </button>
+        <span className="eyebrow green">OPERACIONES Y CAPACIDAD</span>
+        <h2>Informe operativo diario</h2>
+        <p className="muted">
+          Resumen ejecutivo de ocupación, inventario de habitaciones y necesidad de personal.
+        </p>
+        <div style={{ margin: '12px 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>
+          <strong>Fecha de reporte:</strong> {currentDate}
+        </div>
+
+        <div className="metric-grid three" style={{ marginBottom: 20 }}>
+          <Metric
+            icon={BedDouble}
+            label="Ocupación general"
+            value={`${occupancy}%`}
+            help={`${d.occupied || 0} de ${d.rooms || 0} habitaciones`}
+          />
+          <Metric
+            icon={CalendarDays}
+            label="Reservas activas"
+            value={d.activeReservations || 0}
+            help="Confirmadas y alojadas"
+          />
+          <Metric
+            icon={ConciergeBell}
+            label="Solicitudes abiertas"
+            value={d.openRequests || 0}
+            help="Atención a huéspedes"
+          />
+        </div>
+
+        <div className="panel" style={{ marginBottom: 20, padding: 18 }}>
+          <h4 style={{ margin: '0 0 12px' }}>Distribución actual de habitaciones</h4>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+              gap: 12,
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--bg-sunken)',
+                padding: 12,
+                borderRadius: 'var(--r-md)',
+                textAlign: 'center',
+              }}
+            >
+              <small className="muted">Disponibles</small>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--leaf-700)' }}>
+                {d.available || 0}
+              </div>
+            </div>
+            <div
+              style={{
+                background: 'var(--bg-sunken)',
+                padding: 12,
+                borderRadius: 'var(--r-md)',
+                textAlign: 'center',
+              }}
+            >
+              <small className="muted">Ocupadas</small>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--coral-600)' }}>
+                {d.occupied || 0}
+              </div>
+            </div>
+            <div
+              style={{
+                background: 'var(--bg-sunken)',
+                padding: 12,
+                borderRadius: 'var(--r-md)',
+                textAlign: 'center',
+              }}
+            >
+              <small className="muted">Reservadas</small>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sun-600)' }}>
+                {d.reserved || 0}
+              </div>
+            </div>
+            <div
+              style={{
+                background: 'var(--bg-sunken)',
+                padding: 12,
+                borderRadius: 'var(--r-md)',
+                textAlign: 'center',
+              }}
+            >
+              <small className="muted">Mantenimiento</small>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--ocean-700)' }}>
+                {d.maintenance || 0}
+              </div>
+            </div>
+            <div
+              style={{
+                background: 'var(--bg-sunken)',
+                padding: 12,
+                borderRadius: 'var(--r-md)',
+                textAlign: 'center',
+              }}
+            >
+              <small className="muted">Fuera de servicio</small>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--muted)' }}>
+                {d.outOfService || 0}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="panel"
+          style={{ marginBottom: 24, padding: 18, borderLeft: '4px solid var(--sun-500)' }}
+        >
+          <h4 style={{ margin: '0 0 8px' }}>Proyección y recomendación operativa de aseo</h4>
+          <p style={{ margin: 0, fontSize: 14 }}>
+            Con el hotel al {occupancy}% de ocupación en {d.season || 'Temporada Regular'}, se
+            sugiere programar {d.suggestedCleaners || 1} persona(s) de aseo para atender
+            habitaciones y áreas comunes.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button type="button" className="secondary" onClick={() => window.print()}>
+            <Printer size={16} /> Imprimir
+          </button>
+          <button type="button" className="primary" onClick={exportCsv}>
+            <Download size={16} /> Descargar CSV
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminHome({ notify }) {
   const [d, setD] = useState(null);
   const [reminders, setReminders] = useState([]);
   const [loadError, setLoadError] = useState('');
+  const [showReport, setShowReport] = useState(false);
   const load = () =>
     Promise.all([api('/dashboard'), api('/reminders')])
       .then(([dashboard, scheduled]) => {
@@ -2694,13 +3261,23 @@ function AdminHome({ notify }) {
             sola vista.
           </p>
         </div>
-        <span>
-          {new Date().toLocaleDateString('es-CO', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-          })}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
+          <span>
+            {new Date().toLocaleDateString('es-CO', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+            })}
+          </span>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setShowReport(true)}
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <FileSpreadsheet size={16} /> Generar informe operativo
+          </button>
+        </div>
       </section>
 
       <div className="metric-grid four">
@@ -2861,6 +3438,7 @@ function AdminHome({ notify }) {
           </div>
         )}
       </div>
+      {showReport && <OperationalReportModal dashboard={d} onClose={() => setShowReport(false)} />}
     </>
   );
 }
@@ -4244,14 +4822,333 @@ function EvidenceModal({ task, onClose }) {
   );
 }
 
+function FinancialReportModal({ entries, onClose }) {
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return localDate(d);
+  });
+  const [toDate, setToDate] = useState(() => today());
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 6;
+
+  const filtered = useMemo(() => {
+    return entries.filter((e) => {
+      if (!e.date) return false;
+      if (fromDate && e.date < fromDate) return false;
+      if (toDate && e.date > toDate) return false;
+      return true;
+    });
+  }, [entries, fromDate, toDate]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [fromDate, toDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginatedEntries = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const totalIncome = filtered
+    .filter((e) => e.type === 'INCOME')
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+  const totalExpense = filtered
+    .filter((e) => e.type === 'EXPENSE')
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+  const netBalance = totalIncome - totalExpense;
+
+  const exportCsv = () => {
+    const header = 'ID,Fecha,Tipo,Concepto,Monto';
+    const rows = filtered.map((e) =>
+      [
+        e.id,
+        e.date,
+        e.type === 'INCOME' ? 'Ingreso' : 'Gasto',
+        `"${(e.concept || '').replace(/"/g, '""')}"`,
+        e.amount,
+      ].join(',')
+    );
+    const summary = [
+      '',
+      `Resumen del período: ${fromDate} a ${toDate}`,
+      `Total Ingresos,${totalIncome}`,
+      `Total Gastos,${totalExpense}`,
+      `Balance Neto,${netBalance}`,
+    ].join('\n');
+    downloadCsv(
+      `informe_financiero_${fromDate}_${toDate}.csv`,
+      `${header}\n${rows.join('\n')}\n${summary}`
+    );
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        className="modal"
+        style={{
+          width: 'min(920px, 95vw)',
+          maxWidth: '920px',
+          boxSizing: 'border-box',
+          overflowX: 'hidden',
+        }}
+      >
+        <button type="button" className="modal-close" onClick={onClose}>
+          <X />
+        </button>
+        <span className="eyebrow green">INFORMES FINANCIEROS</span>
+        <h2>Informe de ingresos y egresos</h2>
+        <p className="muted">
+          Rendimiento económico del hotel y balance acumulado en el rango seleccionado.
+        </p>
+
+        <div className="filter-card" style={{ marginTop: 16, marginBottom: 20 }}>
+          <label>
+            Desde
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          </label>
+          <label>
+            Hasta
+            <input
+              type="date"
+              min={fromDate}
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              const d = new Date();
+              d.setDate(1);
+              setFromDate(localDate(d));
+              setToDate(today());
+            }}
+          >
+            <RotateCcw size={15} /> Mes actual
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
+            marginBottom: 24,
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            className="metric"
+            style={{
+              margin: 0,
+              padding: '16px 14px',
+              minWidth: 0,
+              boxSizing: 'border-box',
+            }}
+          >
+            <span>
+              <TrendingUp />
+            </span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <small>Ingresos período</small>
+              <strong
+                style={{
+                  fontSize: 'clamp(16px, 1.8vw, 22px)',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {money(totalIncome)}
+              </strong>
+              <em>{filtered.filter((e) => e.type === 'INCOME').length} movimientos</em>
+            </div>
+          </div>
+          <div
+            className="metric"
+            style={{
+              margin: 0,
+              padding: '16px 14px',
+              minWidth: 0,
+              boxSizing: 'border-box',
+            }}
+          >
+            <span>
+              <TrendingDown />
+            </span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <small>Gastos período</small>
+              <strong
+                style={{
+                  fontSize: 'clamp(16px, 1.8vw, 22px)',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {money(totalExpense)}
+              </strong>
+              <em>{filtered.filter((e) => e.type === 'EXPENSE').length} movimientos</em>
+            </div>
+          </div>
+          <div
+            className="metric"
+            style={{
+              margin: 0,
+              padding: '16px 14px',
+              minWidth: 0,
+              boxSizing: 'border-box',
+            }}
+          >
+            <span>
+              <WalletCards />
+            </span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <small>Balance neto</small>
+              <strong
+                style={{
+                  fontSize: 'clamp(16px, 1.8vw, 22px)',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {money(netBalance)}
+              </strong>
+              <em>{netBalance >= 0 ? 'Superávit' : 'Déficit'}</em>
+            </div>
+          </div>
+        </div>
+
+        <div className="section-head">
+          <div>
+            <h4>Detalle de transacciones ({filtered.length})</h4>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="secondary" onClick={() => window.print()}>
+              <Printer size={16} /> Imprimir
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={exportCsv}
+              disabled={!filtered.length}
+            >
+              <Download size={16} /> Descargar CSV
+            </button>
+          </div>
+        </div>
+
+        <div
+          className="table-responsive"
+          style={{
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-md)',
+            marginTop: 8,
+          }}
+        >
+          <table className="data-table" style={{ width: '100%', fontSize: 14 }}>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Tipo</th>
+                <th>Concepto</th>
+                <th style={{ textAlign: 'right' }}>Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedEntries.map((e) => (
+                <tr key={e.id}>
+                  <td>{e.date}</td>
+                  <td>
+                    <span
+                      className={`status ${e.type === 'INCOME' ? 'confirmed' : 'cancelled'}`}
+                      style={{ fontSize: 11 }}
+                    >
+                      {e.type === 'INCOME' ? 'Ingreso' : 'Gasto'}
+                    </span>
+                  </td>
+                  <td>{e.concept}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{money(e.amount)}</td>
+                </tr>
+              ))}
+              {!filtered.length && (
+                <tr>
+                  <td
+                    colSpan={4}
+                    style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}
+                  >
+                    No se encontraron transacciones en este rango de fechas.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {filtered.length > PAGE_SIZE && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginTop: 14,
+              fontSize: 13,
+            }}
+          >
+            <span className="muted">
+              Mostrando {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}{' '}
+              de {filtered.length} movimientos
+            </span>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                style={{ padding: '5px 12px', fontSize: 12 }}
+              >
+                Anterior
+              </button>
+              <span style={{ fontWeight: 600, padding: '0 8px' }}>
+                {page} / {totalPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                style={{ padding: '5px 12px', fontSize: 12 }}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Finance({ notify }) {
   const [entries, setEntries] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [show, setShow] = useState(false);
   const [showReminder, setShowReminder] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [entryPage, setEntryPage] = useState(1);
+  const ENTRY_PAGE_SIZE = 8;
   const saveLock = useRef(false);
+
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => b.date.localeCompare(a.date)),
+    [entries]
+  );
+  const totalEntryPages = Math.max(1, Math.ceil(sortedEntries.length / ENTRY_PAGE_SIZE));
+  const currentEntries = sortedEntries.slice(
+    (entryPage - 1) * ENTRY_PAGE_SIZE,
+    entryPage * ENTRY_PAGE_SIZE
+  );
   const [form, setForm] = useState({ type: 'INCOME', concept: '', amount: '', date: today() });
   const [reminderForm, setReminderForm] = useState({
     concept: '',
@@ -4345,16 +5242,22 @@ function Finance({ notify }) {
           <h3>Control financiero</h3>
           <p className="muted">Ingresos, gastos y balance del hotel.</p>
         </div>
-        <button
-          className="primary"
-          onClick={() => {
-            setError('');
-            setShow(true);
-          }}
-        >
-          <Plus size={17} />
-          Nuevo movimiento
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button type="button" className="secondary" onClick={() => setShowReport(true)}>
+            <FileText size={17} />
+            Generar informe
+          </button>
+          <button
+            className="primary"
+            onClick={() => {
+              setError('');
+              setShow(true);
+            }}
+          >
+            <Plus size={17} />
+            Nuevo movimiento
+          </button>
+        </div>
       </div>
       {error && !show && !showReminder && (
         <p className="form-error" role="alert">
@@ -4445,25 +5348,71 @@ function Finance({ notify }) {
             </tr>
           </thead>
           <tbody>
-            {[...entries]
-              .sort((a, b) => b.date.localeCompare(a.date))
-              .map((e) => (
-                <tr key={e.id}>
-                  <td>{fmtDate(e.date)}</td>
-                  <td>
-                    <strong>{e.concept}</strong>
-                  </td>
-                  <td>
-                    <span className={`status ${e.type.toLowerCase()}`}>{label[e.type]}</span>
-                  </td>
-                  <td className={e.type === 'INCOME' ? 'positive' : 'negative'}>
-                    {e.type === 'INCOME' ? '+' : '−'} {money(e.amount)}
-                  </td>
-                </tr>
-              ))}
+            {currentEntries.map((e) => (
+              <tr key={e.id}>
+                <td>{fmtDate(e.date)}</td>
+                <td>
+                  <strong>{e.concept}</strong>
+                </td>
+                <td>
+                  <span className={`status ${e.type.toLowerCase()}`}>{label[e.type]}</span>
+                </td>
+                <td className={e.type === 'INCOME' ? 'positive' : 'negative'}>
+                  {e.type === 'INCOME' ? '+' : '−'} {money(e.amount)}
+                </td>
+              </tr>
+            ))}
+            {!entries.length && (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>
+                  No hay movimientos registrados.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {sortedEntries.length > ENTRY_PAGE_SIZE && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: 14,
+            fontSize: 13,
+          }}
+        >
+          <span className="muted">
+            Mostrando {(entryPage - 1) * ENTRY_PAGE_SIZE + 1}–
+            {Math.min(entryPage * ENTRY_PAGE_SIZE, sortedEntries.length)} de {sortedEntries.length}{' '}
+            movimientos
+          </span>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={entryPage <= 1}
+              onClick={() => setEntryPage((p) => Math.max(1, p - 1))}
+              style={{ padding: '5px 12px', fontSize: 12 }}
+            >
+              Anterior
+            </button>
+            <span style={{ fontWeight: 600, padding: '0 8px' }}>
+              {entryPage} / {totalEntryPages}
+            </span>
+            <button
+              type="button"
+              className="secondary"
+              disabled={entryPage >= totalEntryPages}
+              onClick={() => setEntryPage((p) => Math.min(totalEntryPages, p + 1))}
+              style={{ padding: '5px 12px', fontSize: 12 }}
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
 
       {show && (
         <div
@@ -4603,6 +5552,9 @@ function Finance({ notify }) {
             </button>
           </form>
         </div>
+      )}
+      {showReport && (
+        <FinancialReportModal entries={entries} onClose={() => setShowReport(false)} />
       )}
     </>
   );

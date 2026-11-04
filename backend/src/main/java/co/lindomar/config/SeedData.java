@@ -18,6 +18,7 @@ import co.lindomar.repository.TaskRepository;
 import co.lindomar.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import org.springframework.boot.CommandLineRunner;
@@ -26,7 +27,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-/** Carga datos de demostración y sincroniza las habitaciones reales de Sincelejo. */
+/** Carga datos de demostración cuando la base de datos está vacía. */
 @Configuration
 @ConditionalOnProperty(
     name = "hotel.demo-data.enabled",
@@ -43,7 +44,7 @@ public class SeedData {
       ReminderRepository reminders,
       PasswordEncoder encoder) {
     return args -> {
-      syncSincelejoRooms(rooms, reservations);
+      syncHotelRooms(rooms, reservations);
 
       if (users.count() > 0) {
         return;
@@ -146,108 +147,30 @@ public class SeedData {
     };
   }
 
-  private void syncSincelejoRooms(RoomRepository rooms, ReservationRepository reservations) {
-    record TargetRoom(
-        String number,
-        int floor,
-        String type,
-        int capacity,
-        BigDecimal price,
-        boolean balcony,
-        boolean petFriendly,
-        String services,
-        String imageUrl) {}
-
-    final var targetRooms =
-        List.of(
-            new TargetRoom(
-                "101",
-                1,
-                "Sencilla",
-                1,
-                new BigDecimal("80000"),
-                false,
-                false,
-                "Wi-Fi · Aire acondicionado · TV · Baño privado",
-                "/rooms/habitacion-1.jpg"),
-            new TargetRoom(
-                "102",
-                1,
-                "Sencilla",
-                1,
-                new BigDecimal("80000"),
-                true,
-                false,
-                "Wi-Fi · Ventilador · TV · Baño privado",
-                "/rooms/habitacion-2.jpg"),
-            new TargetRoom(
-                "201",
-                2,
-                "Doble",
-                2,
-                new BigDecimal("100000"),
-                false,
-                false,
-                "Wi-Fi · Aire acondicionado · TV · Baño privado",
-                "/rooms/habitacion-1.jpg"),
-            new TargetRoom(
-                "202",
-                2,
-                "Doble",
-                2,
-                new BigDecimal("100000"),
-                true,
-                false,
-                "Wi-Fi · Ventilador · TV · Baño privado",
-                "/hotel/lobby.jpg"),
-            new TargetRoom(
-                "203",
-                2,
-                "Familiar",
-                3,
-                new BigDecimal("180000"),
-                false,
-                false,
-                "Wi-Fi · Aire acondicionado · TV · Baño privado",
-                "/hotel/sala.jpg"),
-            new TargetRoom(
-                "301",
-                3,
-                "Familiar",
-                4,
-                new BigDecimal("240000"),
-                true,
-                false,
-                "Wi-Fi · Aire acondicionado · TV · Baño privado",
-                "/hotel/recepcion.jpg"),
-            new TargetRoom(
-                "302",
-                3,
-                "Familiar",
-                6,
-                new BigDecimal("360000"),
-                true,
-                false,
-                "Wi-Fi · Aire acondicionado · TV · Baño privado",
-                "/rooms/habitacion-2.jpg"));
-
+  private static void syncHotelRooms(RoomRepository rooms, ReservationRepository reservations) {
     final var validNumbers = new HashSet<String>();
-    for (var target : targetRooms) {
-      validNumbers.add(target.number());
-      var room = rooms.findByNumber(target.number()).orElseGet(Room::new);
-      room.setNumber(target.number());
-      room.setFloor(target.floor());
-      room.setType(target.type());
-      room.setCapacity(target.capacity());
-      room.setPrice(target.price());
-      room.setBalcony(target.balcony());
-      room.setPetFriendly(target.petFriendly());
-      room.setServices(target.services());
-      room.setImageUrl(target.imageUrl());
-      if (room.getStatus() == null || room.getStatus() == RoomStatus.OUT_OF_SERVICE) {
-        room.setStatus(RoomStatus.AVAILABLE);
+    for (Room target : createOfficialHotelRooms()) {
+      validNumbers.add(target.getNumber());
+      var existing = rooms.findByNumber(target.getNumber());
+      if (existing.isPresent()) {
+        Room r = existing.get();
+        r.setFloor(target.getFloor());
+        r.setType(target.getType());
+        r.setCapacity(target.getCapacity());
+        r.setPrice(target.getPrice());
+        r.setBalcony(target.isBalcony());
+        r.setPetFriendly(target.isPetFriendly());
+        r.setServices(target.getServices());
+        if (target.getImageUrl() != null) {
+          r.setImageUrl(target.getImageUrl());
+        }
+        if (r.getStatus() == null || r.getStatus() == RoomStatus.OUT_OF_SERVICE) {
+          r.setStatus(RoomStatus.AVAILABLE);
+        }
+        rooms.save(r);
+      } else {
+        rooms.save(target);
       }
-      rooms.save(room);
     }
 
     for (var existing : rooms.findAll()) {
@@ -260,5 +183,218 @@ public class SeedData {
         }
       }
     }
+  }
+
+  /**
+   * Genera las 44 habitaciones oficiales del Hotel Lindomar según la distribución real: - Primer
+   * piso: 100 (Familiar, 4 camas, escaleras) y 101 (Doble, 2 camas, recepción). - Piso intermedio:
+   * 102 a 106 (Camas dobles). - Piso 2: 200 a 221 (201 y 205 con ventilador; 208, 214, 218, 219,
+   * 220 con 2 camas; 221 con 3 camas; resto dobles). - Piso 3: 300 a 314 con aire acondicionado
+   * (300 a 304 con 2 camas; 306 con 5 camas; 314 con 3 camas; resto dobles).
+   */
+  public static List<Room> createOfficialHotelRooms() {
+    List<Room> list = new ArrayList<>();
+
+    // Primer piso (al lado de recepción y escaleras)
+    list.add(
+        new Room(
+            "100",
+            1,
+            "Familiar",
+            4,
+            new BigDecimal("320000"),
+            false,
+            true,
+            "Aire acondicionado · Wi-Fi · TV · 4 camas · Junto a recepción y escaleras",
+            RoomStatus.AVAILABLE,
+            "/rooms/habitacion-1.jpg"));
+    list.add(
+        new Room(
+            "101",
+            1,
+            "Estándar",
+            2,
+            new BigDecimal("185000"),
+            false,
+            false,
+            "Aire acondicionado · Wi-Fi · TV · Cama doble · Al lado de recepción y escaleras",
+            RoomStatus.AVAILABLE,
+            "/rooms/habitacion-2.jpg"));
+
+    // Piso intermedio: 102 a 106 (camas dobles)
+    for (int i = 102; i <= 106; i++) {
+      String img = (i % 2 == 0) ? "/rooms/habitacion-1.jpg" : "/rooms/habitacion-2.jpg";
+      list.add(
+          new Room(
+              String.valueOf(i),
+              1,
+              "Estándar",
+              2,
+              new BigDecimal("195000"),
+              false,
+              false,
+              "Aire acondicionado · Wi-Fi · TV · Cama doble · Piso intermedio",
+              RoomStatus.AVAILABLE,
+              img));
+    }
+
+    // Segundo piso: 200 a 221
+    for (int i = 200; i <= 221; i++) {
+      String num = String.valueOf(i);
+      String img = (i % 2 == 0) ? "/rooms/habitacion-1.jpg" : "/rooms/habitacion-2.jpg";
+      if (i == 201 || i == 205) {
+        list.add(
+            new Room(
+                num,
+                2,
+                "Estándar",
+                2,
+                new BigDecimal("175000"),
+                false,
+                false,
+                "Ventilador · Wi-Fi · TV · Cama doble",
+                RoomStatus.AVAILABLE,
+                img));
+      } else if (i == 202) {
+        list.add(
+            new Room(
+                num,
+                2,
+                "Deluxe",
+                2,
+                new BigDecimal("285000"),
+                true,
+                true,
+                "Aire acondicionado · Wi-Fi · Smart TV · Jacuzzi · Cama doble",
+                RoomStatus.AVAILABLE,
+                "/hotel/sala.jpg"));
+      } else if (i == 208 || i == 214 || i == 218 || i == 219 || i == 220) {
+        list.add(
+            new Room(
+                num,
+                2,
+                "Estándar",
+                2,
+                new BigDecimal("220000"),
+                false,
+                false,
+                "Aire acondicionado · Wi-Fi · TV · 2 camas",
+                RoomStatus.AVAILABLE,
+                img));
+      } else if (i == 221) {
+        list.add(
+            new Room(
+                num,
+                2,
+                "Familiar",
+                3,
+                new BigDecimal("310000"),
+                true,
+                true,
+                "Aire acondicionado · Wi-Fi · TV · 3 camas · Familiar múltiple",
+                RoomStatus.AVAILABLE,
+                "/rooms/habitacion-1.jpg"));
+      } else {
+        list.add(
+            new Room(
+                num,
+                2,
+                "Estándar",
+                2,
+                new BigDecimal("210000"),
+                false,
+                false,
+                "Aire acondicionado · Wi-Fi · TV · Cama doble",
+                RoomStatus.AVAILABLE,
+                img));
+      }
+    }
+
+    // Tercer piso: 300 a 314 (todas con aire acondicionado)
+    for (int i = 300; i <= 314; i++) {
+      String num = String.valueOf(i);
+      String img = (i % 2 == 0) ? "/rooms/habitacion-1.jpg" : "/rooms/habitacion-2.jpg";
+      if (i == 301) {
+        list.add(
+            new Room(
+                num,
+                3,
+                "Suite",
+                2,
+                new BigDecimal("480000"),
+                true,
+                true,
+                "Aire acondicionado · Wi-Fi · Jacuzzi · Minibar · Vista al mar · 2 camas",
+                RoomStatus.AVAILABLE,
+                "/hotel/recepcion.jpg"));
+      } else if (i == 302) {
+        list.add(
+            new Room(
+                num,
+                3,
+                "Suite",
+                2,
+                new BigDecimal("490000"),
+                true,
+                false,
+                "Aire acondicionado · Wi-Fi · Jacuzzi · Sala · Vista al mar · 2 camas",
+                RoomStatus.AVAILABLE,
+                "/hotel/lobby.jpg"));
+      } else if (i == 306) {
+        list.add(
+            new Room(
+                num,
+                3,
+                "Familiar",
+                5,
+                new BigDecimal("420000"),
+                true,
+                true,
+                "Aire acondicionado · Wi-Fi · TV · 5 camas · Familiar múltiple · Balcón",
+                RoomStatus.AVAILABLE,
+                "/rooms/habitacion-1.jpg"));
+      } else if (i == 314) {
+        list.add(
+            new Room(
+                num,
+                3,
+                "Familiar",
+                3,
+                new BigDecimal("350000"),
+                true,
+                true,
+                "Aire acondicionado · Wi-Fi · TV · 3 camas · Familiar múltiple · Balcón",
+                RoomStatus.AVAILABLE,
+                "/rooms/habitacion-2.jpg"));
+      } else if (i <= 304) {
+        list.add(
+            new Room(
+                num,
+                3,
+                "Estándar",
+                2,
+                new BigDecimal("230000"),
+                true,
+                false,
+                "Aire acondicionado · Wi-Fi · TV · 2 camas · Balcón",
+                RoomStatus.AVAILABLE,
+                img));
+      } else {
+        list.add(
+            new Room(
+                num,
+                3,
+                "Estándar",
+                2,
+                new BigDecimal("240000"),
+                true,
+                false,
+                "Aire acondicionado · Wi-Fi · TV · Cama doble · Balcón",
+                RoomStatus.AVAILABLE,
+                img));
+      }
+    }
+
+    return list;
   }
 }
