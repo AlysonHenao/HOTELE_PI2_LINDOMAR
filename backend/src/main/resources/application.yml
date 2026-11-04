@@ -23,6 +23,11 @@ server:
   port: 8080
 
 hotel:
+  demo-data:
+    enabled: ${HOTEL_DEMO_DATA_ENABLED:true}
+  bootstrap:
+    email: ${HOTEL_ADMIN_EMAIL:}
+    password: ${HOTEL_ADMIN_PASSWORD:}
   time-zone: ${HOTEL_TIME_ZONE:America/Bogota}
   check-in-time: ${HOTEL_CHECK_IN_TIME:15:00}
   cancellation:

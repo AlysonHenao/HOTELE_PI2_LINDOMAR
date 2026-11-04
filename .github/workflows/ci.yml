@@ -1,6 +1,9 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -37,11 +40,22 @@ jobs:
         run: mvn --batch-mode --no-transfer-progress verify
 
       - name: Upload JaCoCo Coverage Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-coverage-report
           path: backend/target/site/jacoco/
-          if-no-files-found: ignore
+          if-no-files-found: warn
+
+      - name: Upload test and static analysis evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-quality-evidence-${{ github.sha }}
+          path: |
+            backend/target/surefire-reports/
+            backend/target/checkstyle-result.xml
+          if-no-files-found: warn
 
   frontend:
     name: Frontend - Build

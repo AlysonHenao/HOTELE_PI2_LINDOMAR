@@ -1,0 +1,82 @@
+name: lindomar-production
+
+x-logging: &bounded-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    logging: *bounded-logs
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lindomar
+      POSTGRES_USER: lindomar
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Configure DB_PASSWORD}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lindomar -d lindomar"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    logging: *bounded-logs
+    image: ${ECR_REGISTRY:?}/${ECR_BACKEND_REPOSITORY:?}:${IMAGE_TAG:?}
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/lindomar
+      SPRING_DATASOURCE_USERNAME: lindomar
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?}
+      HOTEL_DEMO_DATA_ENABLED: "false"
+      HOTEL_ADMIN_EMAIL: ${ADMIN_EMAIL:?}
+      HOTEL_ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}
+      HOTEL_TIME_ZONE: America/Bogota
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/rooms || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+
+  frontend:
+    logging: *bounded-logs
+    image: ${ECR_REGISTRY:?}/${ECR_FRONTEND_REPOSITORY:?}:${IMAGE_TAG:?}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  https:
+    logging: *bounded-logs
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Configure the DNS hostname}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - certificates:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+
+volumes:
+  database:
+  certificates:
+  caddy_config:

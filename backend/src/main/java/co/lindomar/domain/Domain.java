@@ -10,10 +10,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 /** Define Domain para la gestión del hotel. */
 public final class Domain {
@@ -339,6 +341,10 @@ public final class Domain {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Version
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    private long version;
+
     private Long guestId;
     private Long roomId;
     private LocalDate checkIn;
@@ -356,6 +362,10 @@ public final class Domain {
     private String notes;
 
     public Reservation() {}
+
+    public long getVersion() {
+      return version;
+    }
 
     public Long getId() {
       return id;
@@ -445,7 +455,7 @@ public final class Domain {
   }
 
   /** Define ServiceRequest para la gestión del hotel. */
-  @Entity
+  @Entity(name = "ServiceRequest")
   @Table(name = "service_requests")
   public static class ServiceRequest {
     @Id
@@ -453,6 +463,11 @@ public final class Domain {
     private Long id;
 
     private Long guestId;
+    private Long reservationId;
+
+    @Column(unique = true)
+    private UUID clientRequestId;
+
     private String roomNumber;
     private String category;
 
@@ -465,6 +480,22 @@ public final class Domain {
     private LocalDateTime createdAt;
 
     public ServiceRequest() {}
+
+    public Long getReservationId() {
+      return reservationId;
+    }
+
+    public void setReservationId(Long v) {
+      reservationId = v;
+    }
+
+    public UUID getClientRequestId() {
+      return clientRequestId;
+    }
+
+    public void setClientRequestId(UUID v) {
+      clientRequestId = v;
+    }
 
     public Long getId() {
       return id;
@@ -742,7 +773,7 @@ public final class Domain {
   }
 
   /** HU-15: recordatorios programados de gastos necesarios del hotel. */
-  @Entity
+  @Entity(name = "ExpenseReminder")
   @Table(name = "expense_reminders")
   public static class ExpenseReminder {
     @Id
@@ -753,6 +784,9 @@ public final class Domain {
     private String category;
     private BigDecimal estimatedAmount;
     private LocalDate dueDate;
+
+    @Column(unique = true)
+    private Long paymentEntryId;
 
     @Enumerated(EnumType.STRING)
     private ReminderStatus status;
@@ -815,6 +849,14 @@ public final class Domain {
 
     public ReminderStatus getStatus() {
       return status;
+    }
+
+    public Long getPaymentEntryId() {
+      return paymentEntryId;
+    }
+
+    public void setPaymentEntryId(Long v) {
+      paymentEntryId = v;
     }
 
     public void setStatus(ReminderStatus v) {

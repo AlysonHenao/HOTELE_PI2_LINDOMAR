@@ -67,7 +67,8 @@ const money = (v) =>
   new Intl.NumberFormat('es-CO', {
     style: 'currency',
     currency: 'COP',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(v || 0);
 const label = {
   GUEST: 'Huésped',
@@ -102,6 +103,19 @@ const future = (days = 1) => {
   d.setDate(d.getDate() + days);
   return localDate(d);
 };
+/** Fecha del hotel para que la política no dependa de la zona del dispositivo del huésped. */
+const hotelDate = (offset = 0) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const part = (type) => parts.find((value) => value.type === type).value;
+  const date = new Date(`${part('year')}-${part('month')}-${part('day')}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+};
 const initials = (name) =>
   name
     .split(' ')
@@ -110,6 +124,34 @@ const initials = (name) =>
     .join('');
 /** Días restantes hasta una fecha; negativo si ya venció. */
 const daysUntil = (d) => Math.ceil((new Date(`${d}T12:00:00`) - new Date()) / 86400000);
+
+/** Bloquea clics repetidos y conserva un error visible cuando falla un pago. */
+function useReminderPayment(notify, reload) {
+  const lock = useRef(false);
+  const [payingId, setPayingId] = useState(null);
+  const [paymentError, setPaymentError] = useState('');
+  const pay = async (reminder) => {
+    if (lock.current) return;
+    if (
+      !confirm(`¿Registrar el gasto de ${money(reminder.estimatedAmount)} por ${reminder.concept}?`)
+    )
+      return;
+    lock.current = true;
+    setPayingId(reminder.id);
+    setPaymentError('');
+    try {
+      await api(`/reminders/${reminder.id}/pay`, { method: 'POST' });
+      notify('Gasto registrado y descontado del balance');
+      await reload();
+    } catch (error) {
+      setPaymentError(error.message);
+    } finally {
+      lock.current = false;
+      setPayingId(null);
+    }
+  };
+  return { pay, payingId, paymentError };
+}
 
 function Logo({ className = '', light = false }) {
   return (
@@ -160,7 +202,7 @@ function Toast({ toast, onClose }) {
 /* ---------- Autenticación ---------- */
 function Login({ onLogin }) {
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ email: 'huesped@lindomar.co', password: 'demo123' });
+  const [form, setForm] = useState({ email: '', password: '' });
   const [signup, setSignup] = useState({ name: '', email: '', password: '', phone: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -179,12 +221,6 @@ function Login({ onLogin }) {
       setLoading(false);
     }
   };
-
-  const demos = [
-    ['Huésped', 'huesped@lindomar.co'],
-    ['Empleado', 'empleado@lindomar.co'],
-    ['Administrador', 'admin@lindomar.co'],
-  ];
 
   return (
     <div className="login-page">
@@ -259,15 +295,11 @@ function Login({ onLogin }) {
 
       <section className="login-panel">
         <form className="login-card" onSubmit={submit}>
-          <div className="brand mobile-brand">
+          <div className="brand login-brand">
             <Logo />
             <span>
               LINDOMAR<small>HOTEL &amp; DESCANSO</small>
             </span>
-          </div>
-          <div className="brand" style={{ justifyContent: 'center', marginBottom: 28 }}>
-            <Logo />
-            <span>LINDOMAR</span>
           </div>
           <span className="eyebrow green">
             {mode === 'login' ? 'BIENVENIDO DE NUEVO' : 'CREA TU CUENTA'}
@@ -372,24 +404,6 @@ function Login({ onLogin }) {
               {mode === 'login' ? 'Regístrate' : 'Inicia sesión'}
             </button>
           </p>
-
-          {mode === 'login' && (
-            <div className="demo">
-              <span>O entra con una cuenta de demostración</span>
-              <div>
-                {demos.map(([name, email]) => (
-                  <button
-                    type="button"
-                    key={email}
-                    onClick={() => setForm({ email, password: 'demo123' })}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              <small>Contraseña: demo123</small>
-            </div>
-          )}
         </form>
 
         <span
@@ -470,6 +484,8 @@ function Shell({ user, onLogout, theme, toggleTheme }) {
   }, [user.role]);
   useEffect(() => {
     refreshBadge();
+    window.addEventListener('lindomar-requests-changed', refreshBadge);
+    return () => window.removeEventListener('lindomar-requests-changed', refreshBadge);
   }, [refreshBadge, page]);
 
   return (
@@ -1226,6 +1242,7 @@ function Reservations({ user, notify }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [editing, setEditing] = useState(null);
   const load = () =>
     api('/reservations/mine')
       .then(setItems)
@@ -1263,6 +1280,15 @@ function Reservations({ user, notify }) {
           <h3>Mis reservas</h3>
           <p className="muted">Consulta el estado y los detalles de tus estadías.</p>
         </div>
+        <button
+          className="secondary"
+          onClick={() => {
+            setError('');
+            load();
+          }}
+        >
+          Actualizar reservas
+        </button>
       </div>
       {error && (
         <p className="form-error" role="alert">
@@ -1285,9 +1311,11 @@ function Reservations({ user, notify }) {
               </p>
               {r.notes && <small>“{r.notes}”</small>}
               <p className="policy-note">{r.cancellationPolicy}</p>
+              <p className="policy-note">{r.modificationPolicy}</p>
+              {!r.modifiable && <small>{r.modificationReason}</small>}
               {r.status === 'CONFIRMED' && (
                 <small>
-                  Límite:{' '}
+                  Plazo de cancelación:{' '}
                   {new Date(r.cancellationDeadline).toLocaleString('es-CO', {
                     timeZone: 'America/Bogota',
                   })}{' '}
@@ -1298,11 +1326,22 @@ function Reservations({ user, notify }) {
             </div>
             <strong className="reservation-total">{money(r.total)}</strong>
             <span className={`status ${r.status.toLowerCase()}`}>{label[r.status]}</span>
-            {r.cancellable && (
-              <button className="ghost danger" disabled={busy !== null} onClick={() => cancel(r)}>
-                {busy === r.id ? 'Cancelando…' : 'Cancelar'}
-              </button>
-            )}
+            <div className="reservation-actions">
+              {r.modifiable && (
+                <button
+                  className="secondary"
+                  disabled={busy !== null}
+                  onClick={() => setEditing(r)}
+                >
+                  Modificar
+                </button>
+              )}
+              {r.cancellable && (
+                <button className="ghost danger" disabled={busy !== null} onClick={() => cancel(r)}>
+                  {busy === r.id ? 'Cancelando…' : 'Cancelar'}
+                </button>
+              )}
+            </div>
           </article>
         ))}
         {!items.length && (
@@ -1312,19 +1351,253 @@ function Reservations({ user, notify }) {
           </div>
         )}
       </div>
+      {editing && (
+        <ReservationChangeModal
+          reservation={editing}
+          onClose={() => {
+            setEditing(null);
+            load();
+          }}
+          onSaved={async () => {
+            setEditing(null);
+            notify('Reserva modificada. El importe y la disponibilidad fueron actualizados.');
+            await load();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function ReservationChangeModal({ reservation, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    roomId: reservation.roomId,
+    checkIn: reservation.checkIn,
+    checkOut: reservation.checkOut,
+    guests: reservation.guests,
+    notes: reservation.notes || '',
+    expectedVersion: reservation.version,
+  });
+  const [rooms, setRooms] = useState([]);
+  const [quote, setQuote] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  useEffect(() => {
+    let active = true;
+    api('/rooms/all')
+      .then((list) => {
+        if (active) setRooms(list);
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const change = (values) => {
+    setForm((current) => ({ ...current, ...values }));
+    setQuote(null);
+    setError('');
+  };
+  const review = async (event) => {
+    event.preventDefault();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      setQuote(
+        await api(`/reservations/${reservation.id}/quote`, {
+          method: 'POST',
+          body: JSON.stringify(form),
+        })
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    if (lock.current || !quote) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/reservations/${reservation.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...form, expectedTotal: quote.total }),
+      });
+      await onSaved();
+    } catch (err) {
+      setError(err.message);
+      setQuote(null);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  };
+  const selected = rooms.find((room) => room.id === Number(form.roomId));
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <form
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-title"
+        onSubmit={review}
+      >
+        <button
+          type="button"
+          className="modal-close"
+          aria-label="Cerrar modificación"
+          disabled={busy}
+          onClick={onClose}
+        >
+          <X />
+        </button>
+        <span className="eyebrow green">RESERVA #{reservation.id}</span>
+        <h2 id="change-title">Modificar reserva</h2>
+        <p className="policy-note">{reservation.modificationPolicy}</p>
+        <fieldset className="stay-fields" disabled={busy}>
+          <label>
+            Habitación
+            <select
+              autoFocus
+              value={form.roomId}
+              onChange={(event) => change({ roomId: Number(event.target.value) })}
+              required
+            >
+              {!rooms.length && (
+                <option value={reservation.roomId}>Habitación {reservation.roomNumber}</option>
+              )}
+              {rooms
+                .filter((room) => room.status === 'AVAILABLE' || room.id === reservation.roomId)
+                .map((room) => (
+                  <option key={room.id} value={room.id} disabled={room.status !== 'AVAILABLE'}>
+                    {room.number} · {room.type} · hasta {room.capacity} personas ·{' '}
+                    {money(room.price)}/noche
+                  </option>
+                ))}
+            </select>
+          </label>
+          <div className="form-grid">
+            <label>
+              Llegada
+              <input
+                type="date"
+                min={hotelDate(1)}
+                value={form.checkIn}
+                required
+                onChange={(event) => change({ checkIn: event.target.value })}
+              />
+            </label>
+            <label>
+              Salida
+              <input
+                type="date"
+                min={form.checkIn}
+                value={form.checkOut}
+                required
+                onChange={(event) => change({ checkOut: event.target.value })}
+              />
+            </label>
+            <label>
+              Huéspedes
+              <input
+                type="number"
+                min="1"
+                max={selected?.capacity}
+                value={form.guests}
+                required
+                onChange={(event) => change({ guests: Number(event.target.value) })}
+              />
+            </label>
+          </div>
+          <label>
+            Observaciones
+            <textarea
+              maxLength={255}
+              value={form.notes}
+              onChange={(event) => change({ notes: event.target.value })}
+            />
+          </label>
+        </fieldset>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        {quote && (
+          <div className="price-summary reservation-change-summary" role="status">
+            <p>Total anterior: {money(quote.previousTotal)}</p>
+            <p>
+              Nuevo total por {quote.nights} noche(s): <strong>{money(quote.total)}</strong>
+            </p>
+            <p>
+              {quote.difference > 0
+                ? `Ingreso adicional: ${money(quote.difference)}`
+                : quote.difference < 0
+                  ? `Reembolso a registrar: ${money(-quote.difference)}`
+                  : 'Sin diferencia de importe.'}
+            </p>
+            <small>El ajuste se registra en el balance del hotel al confirmar.</small>
+          </div>
+        )}
+        {quote ? (
+          <button type="button" className="primary wide" disabled={busy} onClick={save}>
+            {busy ? 'Guardando…' : 'Confirmar cambios'}
+          </button>
+        ) : (
+          <button className="primary wide" disabled={busy || !rooms.length}>
+            {busy ? 'Revisando…' : 'Revisar cambios'}
+          </button>
+        )}
+      </form>
+    </div>
   );
 }
 
 function Requests({ user, notify }) {
   const [items, setItems] = useState([]);
+  const [stays, setStays] = useState([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const submission = useRef(null);
   const [form, setForm] = useState({
-    guestId: user.id,
-    roomNumber: '',
+    reservationId: '',
     category: 'Toallas y lencería',
     notes: '',
   });
-  const load = useCallback(() => api(`/requests?guestId=${user.id}`).then(setItems), [user.id]);
+  const load = useCallback(
+    () =>
+      Promise.all([api(`/requests?guestId=${user.id}`), api('/requests/eligible-reservations')])
+        .then(([list, eligible]) => {
+          setItems(list);
+          setStays(eligible);
+          setForm((current) => ({
+            ...current,
+            reservationId: eligible.some(
+              (stay) => String(stay.id) === String(current.reservationId)
+            )
+              ? current.reservationId
+              : String(eligible[0]?.id || ''),
+          }));
+        })
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false)),
+    [user.id]
+  );
   // Se envuelve en llaves a propósito: si el efecto devuelve la promesa de `load`,
   // React la toma como función de limpieza y falla al desmontar la vista.
   useEffect(() => {
@@ -1332,10 +1605,32 @@ function Requests({ user, notify }) {
   }, [load]);
   const submit = async (e) => {
     e.preventDefault();
-    await api('/requests', { method: 'POST', body: JSON.stringify(form) });
-    setForm({ ...form, notes: '' });
-    notify('Solicitud enviada al equipo');
-    load();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    const payload = {
+      ...form,
+      reservationId: Number(form.reservationId),
+      notes: form.notes.trim(),
+    };
+    const body = JSON.stringify(payload);
+    if (submission.current?.body !== body) submission.current = { body, key: crypto.randomUUID() };
+    try {
+      const saved = await api('/requests', {
+        method: 'POST',
+        body: JSON.stringify({ ...payload, clientRequestId: submission.current.key }),
+      });
+      submission.current = null;
+      setForm((current) => ({ ...current, notes: '' }));
+      notify(`Solicitud #${saved.id} enviada al equipo`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   };
 
   return (
@@ -1343,41 +1638,63 @@ function Requests({ user, notify }) {
       <form className="panel request-form" onSubmit={submit}>
         <span className="eyebrow green">ATENCIÓN A LA HABITACIÓN</span>
         <h3>¿En qué podemos ayudarte?</h3>
-        <label>
-          Habitación
-          <input
-            placeholder="Ej: 201"
-            value={form.roomNumber}
-            onChange={(e) => setForm({ ...form, roomNumber: e.target.value })}
-            required
-          />
-        </label>
-        <label>
-          Tipo de solicitud
-          <select
-            value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
-          >
-            <option>Toallas y lencería</option>
-            <option>Limpieza</option>
-            <option>Alimentos y bebidas</option>
-            <option>Mantenimiento</option>
-            <option>Otro</option>
-          </select>
-        </label>
-        <label>
-          Observaciones
-          <textarea
-            placeholder="Cuéntanos qué necesitas…"
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            required
-          />
-        </label>
-        <button className="primary wide">
-          <ConciergeBell size={17} />
-          Enviar solicitud
-        </button>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        {loading && <p role="status">Consultando tus estadías…</p>}
+        {!loading && !stays.length && (
+          <p role="status">
+            Podrás solicitar asistencia durante tu estadía. Si ya llegaste y no aparece tu
+            habitación, consulta a recepción.
+          </p>
+        )}
+        <fieldset className="stay-fields" disabled={busy || loading || !stays.length}>
+          <label>
+            Habitación
+            <select
+              value={form.reservationId}
+              onChange={(e) => setForm({ ...form, reservationId: e.target.value })}
+              required
+            >
+              {!stays.length && <option value="">Sin estadías vigentes</option>}
+              {stays.map((stay) => (
+                <option key={stay.id} value={stay.id}>
+                  {stay.roomNumber} · Reserva #{stay.id} · {fmtDate(stay.checkIn)} —{' '}
+                  {fmtDate(stay.checkOut)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Tipo de solicitud
+            <select
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+            >
+              <option>Toallas y lencería</option>
+              <option>Limpieza</option>
+              <option>Alimentos y bebidas</option>
+              <option>Mantenimiento</option>
+              <option>Otro</option>
+            </select>
+          </label>
+          <label>
+            Observaciones
+            <textarea
+              placeholder="Cuéntanos qué necesitas…"
+              value={form.notes}
+              maxLength={1200}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              required
+            />
+          </label>
+          <button className="primary wide" disabled={busy || !form.notes.trim()}>
+            <ConciergeBell size={17} />
+            {busy ? 'Enviando…' : 'Enviar solicitud'}
+          </button>
+        </fieldset>
       </form>
       <div>
         <div className="section-head">
@@ -1385,6 +1702,16 @@ function Requests({ user, notify }) {
             <h3>Solicitudes recientes</h3>
             <p className="muted">Sigue el progreso de tu atención.</p>
           </div>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => {
+              setError('');
+              load();
+            }}
+          >
+            Actualizar
+          </button>
         </div>
         <div className="list-stack compact">
           {items.map((i) => (
@@ -1727,19 +2054,37 @@ function TaskCompletion({ task, onComplete }) {
  */
 function ServiceRequests({ notify, onChange }) {
   const [items, setItems] = useState([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(null);
+  const lock = useRef(false);
   const load = () =>
-    api('/requests').then((list) =>
-      setItems([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)))
-    );
+    api('/requests')
+      .then((list) => {
+        setItems([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+        window.dispatchEvent(new Event('lindomar-requests-changed'));
+      })
+      .catch((err) => setError(err.message));
   useEffect(() => {
     load();
   }, []);
 
   const update = async (id, status) => {
-    await api(`/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-    notify(status === 'RESOLVED' ? 'Solicitud marcada como resuelta' : 'Solicitud en progreso');
-    load();
-    onChange?.();
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(id);
+    setError('');
+    try {
+      await api(`/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+      notify(status === 'RESOLVED' ? 'Solicitud marcada como resuelta' : 'Solicitud en progreso');
+      await load();
+      onChange?.();
+    } catch (err) {
+      setError(err.message);
+      await load();
+    } finally {
+      lock.current = false;
+      setBusy(null);
+    }
   };
 
   const open = items.filter((i) => i.status !== 'RESOLVED');
@@ -1766,6 +2111,16 @@ function ServiceRequests({ notify, onChange }) {
           <h3>Solicitudes por atender</h3>
           <p className="muted">Peticiones enviadas por los huéspedes desde sus habitaciones.</p>
         </div>
+        <button
+          className="secondary"
+          disabled={busy !== null}
+          onClick={() => {
+            setError('');
+            load();
+          }}
+        >
+          Actualizar solicitudes
+        </button>
         {open.length > 0 && (
           <span className="notification-chip">
             <BellRing size={15} />
@@ -1773,6 +2128,11 @@ function ServiceRequests({ notify, onChange }) {
           </span>
         )}
       </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="list-stack">
         {open.map((i) => (
           <article className="request-row" key={i.id}>
@@ -1794,14 +2154,22 @@ function ServiceRequests({ notify, onChange }) {
             <div className="request-actions">
               <span className={`status ${i.status.toLowerCase()}`}>{label[i.status]}</span>
               {i.status === 'OPEN' && (
-                <button className="secondary" onClick={() => update(i.id, 'IN_PROGRESS')}>
-                  Atender
+                <button
+                  className="secondary"
+                  disabled={busy !== null}
+                  onClick={() => update(i.id, 'IN_PROGRESS')}
+                >
+                  {busy === i.id ? 'Guardando…' : 'Atender'}
                 </button>
               )}
               {i.status === 'IN_PROGRESS' && (
-                <button className="primary" onClick={() => update(i.id, 'RESOLVED')}>
+                <button
+                  className="primary"
+                  disabled={busy !== null}
+                  onClick={() => update(i.id, 'RESOLVED')}
+                >
                   <CheckCircle2 size={16} />
-                  Resolver
+                  {busy === i.id ? 'Guardando…' : 'Resolver'}
                 </button>
               )}
             </div>
@@ -1874,14 +2242,27 @@ function Admin({ page, user, notify, onChange }) {
 function AdminHome({ notify }) {
   const [d, setD] = useState(null);
   const [reminders, setReminders] = useState([]);
-  const load = () => {
-    api('/dashboard').then(setD);
-    api('/reminders').then(setReminders);
-  };
+  const [loadError, setLoadError] = useState('');
+  const load = () =>
+    Promise.all([api('/dashboard'), api('/reminders')])
+      .then(([dashboard, scheduled]) => {
+        setD(dashboard);
+        setReminders(scheduled);
+        setLoadError('');
+      })
+      .catch((error) => setLoadError(error.message));
   useEffect(() => {
     load();
   }, []);
-  if (!d) return <div className="loader">Cargando indicadores…</div>;
+  const { pay, payingId, paymentError } = useReminderPayment(notify, load);
+  if (!d)
+    return loadError ? (
+      <p className="form-error" role="alert">
+        {loadError}
+      </p>
+    ) : (
+      <div className="loader">Cargando indicadores…</div>
+    );
 
   const occupancy = Number.isFinite(d.occupancyRate) ? d.occupancyRate : 0;
   const roomBreakdown = [
@@ -1892,12 +2273,6 @@ function AdminHome({ notify }) {
     ['out-of-service', 'fuera de servicio', d.outOfService],
   ];
   const pending = reminders.filter((r) => r.status === 'PENDING');
-
-  const pay = async (r) => {
-    await api(`/reminders/${r.id}/pay`, { method: 'POST' });
-    notify('Gasto registrado y descontado del balance');
-    load();
-  };
 
   return (
     <>
@@ -1991,6 +2366,16 @@ function AdminHome({ notify }) {
           </span>
         )}
       </div>
+      {loadError && (
+        <p className="form-error" role="alert">
+          {loadError}
+        </p>
+      )}
+      {paymentError && (
+        <p className="form-error" role="alert">
+          {paymentError}
+        </p>
+      )}
       <div className="reminder-list">
         {pending.map((r) => {
           const days = daysUntil(r.dueDate);
@@ -2009,8 +2394,8 @@ function AdminHome({ notify }) {
                       : `en ${days} día(s)`}
                 </small>
               </div>
-              <button className="secondary" onClick={() => pay(r)}>
-                Registrar gasto
+              <button className="secondary" disabled={payingId !== null} onClick={() => pay(r)}>
+                {payingId === r.id ? 'Registrando…' : 'Registrar gasto'}
               </button>
             </div>
           );
@@ -2437,7 +2822,7 @@ function AdminReservations({ notify }) {
           />
         </label>
         <button
-          className="ghost"
+          className="secondary"
           onClick={() => setFilters({ query: '', status: 'ALL', from: '', to: '' })}
         >
           Limpiar
@@ -2896,6 +3281,9 @@ function Finance({ notify }) {
   const [reminders, setReminders] = useState([]);
   const [show, setShow] = useState(false);
   const [showReminder, setShowReminder] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const saveLock = useRef(false);
   const [form, setForm] = useState({ type: 'INCOME', concept: '', amount: '', date: today() });
   const [reminderForm, setReminderForm] = useState({
     concept: '',
@@ -2904,42 +3292,75 @@ function Finance({ notify }) {
     dueDate: future(7),
   });
 
-  const load = () => {
-    api('/finance').then(setEntries);
-    api('/reminders').then(setReminders);
-  };
+  const load = () =>
+    Promise.all([api('/finance'), api('/reminders')])
+      .then(([movements, scheduled]) => {
+        setEntries(movements);
+        setReminders(scheduled);
+      })
+      .catch((err) => setError(err.message));
   useEffect(() => {
     load();
   }, []);
 
   const create = async (e) => {
     e.preventDefault();
-    await api('/finance', {
-      method: 'POST',
-      body: JSON.stringify({ ...form, amount: Number(form.amount) }),
-    });
-    setShow(false);
-    notify('Movimiento financiero registrado');
-    load();
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await api('/finance', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...form,
+          concept: form.concept.trim(),
+          amount: Number(form.amount),
+        }),
+      });
+      setShow(false);
+      setForm({ type: 'INCOME', concept: '', amount: '', date: today() });
+      notify('Movimiento financiero registrado');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
   };
   const createReminder = async (e) => {
     e.preventDefault();
-    await api('/reminders', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...reminderForm,
-        estimatedAmount: Number(reminderForm.estimatedAmount),
-      }),
-    });
-    setShowReminder(false);
-    notify('Recordatorio programado');
-    load();
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await api('/reminders', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...reminderForm,
+          concept: reminderForm.concept.trim(),
+          estimatedAmount: Number(reminderForm.estimatedAmount),
+        }),
+      });
+      setShowReminder(false);
+      setReminderForm({
+        concept: '',
+        category: 'Insumos',
+        estimatedAmount: '',
+        dueDate: future(7),
+      });
+      notify('Recordatorio programado');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
   };
-  const pay = async (r) => {
-    await api(`/reminders/${r.id}/pay`, { method: 'POST' });
-    notify('Gasto registrado y descontado del balance');
-    load();
-  };
+  const { pay, payingId, paymentError } = useReminderPayment(notify, load);
 
   const income = entries
     .filter((e) => e.type === 'INCOME')
@@ -2956,11 +3377,22 @@ function Finance({ notify }) {
           <h3>Control financiero</h3>
           <p className="muted">Ingresos, gastos y balance del hotel.</p>
         </div>
-        <button className="primary" onClick={() => setShow(true)}>
+        <button
+          className="primary"
+          onClick={() => {
+            setError('');
+            setShow(true);
+          }}
+        >
           <Plus size={17} />
           Nuevo movimiento
         </button>
       </div>
+      {error && !show && !showReminder && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="metric-grid three">
         <Metric
           icon={TrendingUp}
@@ -2987,11 +3419,22 @@ function Finance({ notify }) {
           <h3>Gastos programados</h3>
           <p className="muted">Recordatorios de pagos y compras necesarias.</p>
         </div>
-        <button className="secondary" onClick={() => setShowReminder(true)}>
+        <button
+          className="secondary"
+          onClick={() => {
+            setError('');
+            setShowReminder(true);
+          }}
+        >
           <Plus size={17} />
           Programar gasto
         </button>
       </div>
+      {paymentError && (
+        <p className="form-error" role="alert">
+          {paymentError}
+        </p>
+      )}
       <div className="reminder-list">
         {pending.map((r) => {
           const days = daysUntil(r.dueDate);
@@ -3004,8 +3447,8 @@ function Finance({ notify }) {
                   {r.category} · {money(r.estimatedAmount)} · vence {fmtDate(r.dueDate)}
                 </small>
               </div>
-              <button className="secondary" onClick={() => pay(r)}>
-                Registrar gasto
+              <button className="secondary" disabled={payingId !== null} onClick={() => pay(r)}>
+                {payingId === r.id ? 'Registrando…' : 'Registrar gasto'}
               </button>
             </div>
           );
@@ -3065,6 +3508,11 @@ function Finance({ notify }) {
             </button>
             <span className="eyebrow green">MOVIMIENTO</span>
             <h2>Registrar movimiento</h2>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
             <label>
               Tipo
               <select
@@ -3079,6 +3527,8 @@ function Finance({ notify }) {
               Concepto
               <input
                 value={form.concept}
+                maxLength={255}
+                pattern=".*\S.*"
                 onChange={(e) => setForm({ ...form, concept: e.target.value })}
                 required
               />
@@ -3088,7 +3538,9 @@ function Finance({ notify }) {
                 Valor
                 <input
                   type="number"
-                  min="1"
+                  min="0.01"
+                  max="999999999999.99"
+                  step="0.01"
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: e.target.value })}
                   required
@@ -3098,12 +3550,15 @@ function Finance({ notify }) {
                 Fecha
                 <input
                   type="date"
+                  max={today()}
                   value={form.date}
                   onChange={(e) => setForm({ ...form, date: e.target.value })}
                 />
               </label>
             </div>
-            <button className="primary wide">Guardar movimiento</button>
+            <button className="primary wide" disabled={saving}>
+              {saving ? 'Guardando…' : 'Guardar movimiento'}
+            </button>
           </form>
         </div>
       )}
@@ -3119,11 +3574,18 @@ function Finance({ notify }) {
             </button>
             <span className="eyebrow green">RECORDATORIO</span>
             <h2>Programar gasto</h2>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
             <p className="muted">El sistema te avisará cuando la fecha se acerque.</p>
             <label>
               Concepto
               <input
                 value={reminderForm.concept}
+                maxLength={255}
+                pattern=".*\S.*"
                 onChange={(e) => setReminderForm({ ...reminderForm, concept: e.target.value })}
                 placeholder="Ej: Pago factura de agua"
                 required
@@ -3147,7 +3609,9 @@ function Finance({ notify }) {
                 Valor estimado
                 <input
                   type="number"
-                  min="1"
+                  min="0.01"
+                  max="999999999999.99"
+                  step="0.01"
                   value={reminderForm.estimatedAmount}
                   onChange={(e) =>
                     setReminderForm({ ...reminderForm, estimatedAmount: e.target.value })
@@ -3161,11 +3625,14 @@ function Finance({ notify }) {
                   type="date"
                   min={today()}
                   value={reminderForm.dueDate}
+                  required
                   onChange={(e) => setReminderForm({ ...reminderForm, dueDate: e.target.value })}
                 />
               </label>
             </div>
-            <button className="primary wide">Programar recordatorio</button>
+            <button className="primary wide" disabled={saving}>
+              {saving ? 'Guardando…' : 'Programar recordatorio'}
+            </button>
           </form>
         </div>
       )}

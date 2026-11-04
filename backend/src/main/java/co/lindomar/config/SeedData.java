@@ -19,12 +19,17 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /** Carga datos de demostración cuando la base de datos está vacía. */
 @Configuration
+@ConditionalOnProperty(
+    name = "hotel.demo-data.enabled",
+    havingValue = "true",
+    matchIfMissing = true)
 public class SeedData {
   @Bean
   CommandLineRunner seed(

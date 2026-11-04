@@ -16,6 +16,8 @@ public interface TaskRepository extends JpaRepository<StaffTask, Long> {
 
   boolean existsByEventKey(String eventKey);
 
+  Optional<StaffTask> findByEventKey(String eventKey);
+
   /** Serializa cambios de responsable y de estado de una misma tarea. */
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   Optional<StaffTask> findLockedById(Long id);
