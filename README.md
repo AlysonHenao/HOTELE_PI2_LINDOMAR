@@ -135,3 +135,7 @@ Calidad: `cd backend && mvn verify`. Frontend: `cd frontend && npm ci && npm run
 
 Consulta [reglas, endpoints, pruebas y guion de demo del Sprint 2](docs/SPRINT2.md).
 
+### Sprint 3 — HU-22 y HU-29
+
+- **HU-22:** en **Reservas**, el administrador puede filtrar las reservas que se pueden cancelar, confirmar la operación y consultar el historial filtrando por **Cancelada**. Las nuevas cancelaciones registran fecha, hora y rol de origen. Se conserva la política del hotel, la liberación de fechas y el registro de un único reembolso interno.
+- **HU-29:** **Avisos de tareas** muestra notificaciones de asignaciones manuales o automáticas, cambios y reasignaciones. Los avisos se actualizan cada 15 segundos y se conservan hasta que su destinatario los marca como leídos.
