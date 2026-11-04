@@ -33,3 +33,16 @@ hotel:
   cancellation:
     advance-hours: ${HOTEL_CANCELLATION_ADVANCE_HOURS:2}
 
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:h2:mem:lindomar;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop

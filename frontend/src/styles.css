@@ -2260,6 +2260,53 @@ td > small {
   font-size: 12px;
 }
 
+/* ---------- 21b. Paginación de tablas y roles ---------- */
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-elevated);
+  font-size: 13px;
+  color: var(--muted);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.table-pagination .pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.table-pagination button {
+  padding: 6px 14px;
+  font-size: 12px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-full);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-sunken);
+  color: var(--muted);
+}
+.role-badge.admin {
+  background: var(--sun-100);
+  color: var(--sun-600);
+}
+.role-badge.employee {
+  background: var(--ocean-100);
+  color: var(--ocean-700);
+}
+.role-badge.guest {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
 /* ---------- 22. Tareas ---------- */
 .task-board {
   display: grid;
